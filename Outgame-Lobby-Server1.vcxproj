@@ -135,12 +135,25 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="LobbyServer.h" />
-    <ClInclude Include="RedisConnection.h" />
+    <ClInclude Include="ConnUser.h" />
+    <ClInclude Include="ConnUsersManager.h" />
+    <ClInclude Include="Define.h" />
+    <ClInclude Include="LobbyHeartbeat.h" />
+    <ClInclude Include="MySQLConnectionPool.h" />
+    <ClInclude Include="OutGameLobbyServer.h" />
+    <ClInclude Include="OverLappedManager.h" />
+    <ClInclude Include="Packet.h" />
+    <ClInclude Include="RedisManager.h" />
+    <ClInclude Include="ServerChannelEnum.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="ConnUsersManager.cpp" />
+    <ClCompile Include="LobbyHeartbeat.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="RedisConnection.cpp" />
+    <ClCompile Include="MySQLConnectionPool.cpp" />
+    <ClCompile Include="OutGameLobbyServer.cpp" />
+    <ClCompile Include="OverLappedManager.cpp" />
+    <ClCompile Include="RedisManager.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
