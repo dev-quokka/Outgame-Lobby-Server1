@@ -49,13 +49,16 @@ bool OutGameLobbyServer::init() {
     overLappedManager = new OverLappedManager;
     overLappedManager->init();
 
-    RedisManager::GetInstance().Connect("127.0.0.1", 6379); // 레디스 연결
+    RedisManager::GetInstance().R("127.0.0.1", 6379); // 레디스 연결
     auto& redis = RedisManager::GetInstance().GetRedis();
 
     bool m = MySQLConnectionPool::GetInstance().init();
     if (!m) {
 
     }
+
+    heartbeat_.Start();
+    subscriber_.Start();
 
     return true;
 }
@@ -102,6 +105,9 @@ void OutGameLobbyServer::ServerEnd() {
             acceptThreads[i].join();
         }
     }
+
+    heartbeat_.Stop();
+    subscriber_.Stop();
 
     CloseHandle(sIOCPHandle);
     closesocket(serverSkt);

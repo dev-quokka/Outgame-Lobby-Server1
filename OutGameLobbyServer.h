@@ -10,6 +10,9 @@
 #include "RedisManager.h"
 #include "MySQLConnectionPool.h"
 
+#include "LobbyHeartbeat.h"
+#include "LobbyRedisSubscriber.h"
+
 class OutGameLobbyServer {
 public:
     OutGameLobbyServer(uint16_t maxClientCount_) : maxClientCount(maxClientCount_), AcceptQueue(maxClientCount_) {}
@@ -36,6 +39,9 @@ private:
     // 32 bytes
     std::vector<std::thread> workThreads;
     std::vector<std::thread> acceptThreads;
+
+    LobbyHeartbeat  heartbeat_;
+    LobbyRedisSubscriber subscriber_; 
 
     // 8 bytes
     SOCKET serverSkt = INVALID_SOCKET;

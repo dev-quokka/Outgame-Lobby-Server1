@@ -27,3 +27,13 @@ inline std::unordered_map<ServerType, ServerAddress> ServerAddressMap = {
 	{ ServerType::LobbyServer01, { "127.0.0.1", 9011 } },
 	{ ServerType::LobbyServer02, { "127.0.0.1", 9012 } }
 };
+
+inline std::unordered_map<ServerType, std::string> ServerNamesMap = {
+	{ ServerType::LoginServer,   "LoginServer" },
+	{ ServerType::LobbyServer01, "LobbyServer01" },
+	{ ServerType::LobbyServer02, "LobbyServer02" }
+};
+
+inline std::string GetServerName(const ServerType serverType_) {
+	return ServerNamesMap[serverType_];
+}

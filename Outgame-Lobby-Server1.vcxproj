@@ -109,7 +109,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>C:\Users\82104\boost_1_87_0;C:\Users\82104\hiredis\Build\hiredis_install\include;C:\Users\82104\oneapi-tbb-2022.0.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\82104\jwt-cpp-master\include;C:\Users\82104\boost_1_87_0;C:\Users\82104\hiredis\Build\hiredis_install\include;C:\Users\82104\oneapi-tbb-2022.0.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -135,22 +135,28 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="CircularBuffer.h" />
     <ClInclude Include="ConnUser.h" />
     <ClInclude Include="ConnUsersManager.h" />
+    <ClInclude Include="DBConfig.h" />
     <ClInclude Include="Define.h" />
     <ClInclude Include="LobbyHeartbeat.h" />
-    <ClInclude Include="MySQLConnectionPool.h" />
+    <ClInclude Include="LobbyRedisSubscriber.h" />
+    <ClInclude Include="MySQLManager.h" />
     <ClInclude Include="OutGameLobbyServer.h" />
     <ClInclude Include="OverLappedManager.h" />
     <ClInclude Include="Packet.h" />
     <ClInclude Include="RedisManager.h" />
     <ClInclude Include="ServerChannelEnum.h" />
+    <ClInclude Include="UserTypes.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="CircularBuffer.cpp" />
     <ClCompile Include="ConnUsersManager.cpp" />
     <ClCompile Include="LobbyHeartbeat.cpp" />
+    <ClCompile Include="LobbyRedisSubscriber.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="MySQLConnectionPool.cpp" />
+    <ClCompile Include="MySQLManager.cpp" />
     <ClCompile Include="OutGameLobbyServer.cpp" />
     <ClCompile Include="OverLappedManager.cpp" />
     <ClCompile Include="RedisManager.cpp" />

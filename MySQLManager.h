@@ -1,0 +1,36 @@
+#pragma once
+#pragma comment (lib, "libmysql.lib")
+
+#include <optional>
+
+#include "DBConfig.h"
+#include "UserTypes.h"
+
+class MySQLManager {
+public:
+	static MySQLManager& GetInstance();
+
+	MYSQL* GetConnection();
+
+	bool init();
+	void Shutdown();
+
+	std::optional<uint32_t> AcceptFriend(uint32_t userPk_, const std::string& targetId_);
+	std::optional<uint32_t> RemoveFriend(uint32_t userPk_, const std::string& targetId_);
+	std::optional<std::vector<FriendInfoDB>> GetUserFriendsDB(uint32_t userPk_);
+
+	MySQLManager(const MySQLManager&) = delete;
+	MySQLManager& operator=(const MySQLManager&) = delete;
+
+private:
+	MySQLManager() = default;
+	~MySQLManager() {
+		Shutdown();
+	}
+
+	std::mutex dbPoolMutex;
+	std::queue<MYSQL*> dbPool;
+	std::counting_semaphore<dbConnectionCount> semaphore{ dbConnectionCount };
+
+	int MysqlResult;
+};

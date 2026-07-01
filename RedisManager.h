@@ -1,4 +1,6 @@
-\#pragma once
+#pragma once
+
+#include <jwt-cpp/jwt.h>
 #include <sw/redis++/redis++.h>
 #include <memory>
 #include <string>
@@ -7,17 +9,25 @@
 #include <unordered_map>
 
 #include "Packet.h"
-#include "LobbyHeartbeat.h"
+#include "UserTypes.h"
 #include "ConnUsersManager.h"
+#include "MySQLManager.h"
+#include "ServerChannelEnum.h"
+
+constexpr const char* JWT_SECRET = "quokka_secret_key";
+constexpr int MAX_DATA_PACKET_SIZE = 256;
+
+constexpr const char* host = "127.0.0.1";
+constexpr int port = 6379;
 
 class RedisManager {
 public:
     static RedisManager& GetInstance();
     sw::redis::Redis& GetRedis();
 
+    void SetConnUsersManager(ConnUsersManager* mgr) { connUsersManager = mgr; }
 
     // ====================== INITIALIZATION =======================
-    void Connect(const std::string& host, int port);
     void Init(const uint16_t RedisThreadCnt_);
 
 
@@ -25,13 +35,20 @@ public:
     void PushRedisPacket(const uint16_t connObjNum_, const uint32_t size_, char* recvData_);
 
 
-    // ==================== CONNECTION INTERFACE ===================
-    void Disconnect(uint16_t connObjNum_);
+    // ====================== REDIS =======================
+    bool VerifyUserToken(const std::string& userId_, const char* token_, uint32_t& outUserPk_);
+    void ProcessFriendAccept(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+    void PublishToUsers(const std::vector<uint32_t>& targetPks_, const std::string& message_);
+    void NotifyFriendOffline(uint32_t userPk_);
+
+
+    // ====================== UserState =======================
+    void UserDisConnect(uint16_t connObjNum_);
+    void ProcessLobbyConnect(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
 
 
     RedisManager(const RedisManager&) = delete;
     RedisManager& operator=(const RedisManager&) = delete;
-
 
 private:
     RedisManager() = default;
@@ -56,7 +73,7 @@ private:
     sw::redis::ConnectionOptions connection_options;
 
     // 136 bytes
-    boost::lockfree::queue<DataPacket> procSktQueue{ MAX_CENTER_PACKET_SIZE };
+    boost::lockfree::queue<DataPacket> procSktQueue{ MAX_DATA_PACKET_SIZE };
 
     // 80 bytes
     std::unordered_map<uint16_t, RECV_PACKET_FUNCTION> packetIDTable;
@@ -70,8 +87,6 @@ private:
 
     // 8 bytes
     std::unique_ptr<sw::redis::Redis> redis;
-    std::unique_ptr<LobbyHeartbeat> lobbyHeartbeat;
-
     ConnUsersManager* connUsersManager;
 
     // 1 bytes

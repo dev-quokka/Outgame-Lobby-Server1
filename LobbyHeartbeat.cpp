@@ -1,7 +1,6 @@
 #include "LobbyHeartbeat.h"
 
 LobbyHeartbeat::LobbyHeartbeat(int serverId_) : serverId(serverId_) {}
-
 LobbyHeartbeat::~LobbyHeartbeat() {
     Stop();
 }

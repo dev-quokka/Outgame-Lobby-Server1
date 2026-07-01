@@ -62,6 +62,14 @@ public:
 		userPk = userPk_;
 	}
 
+	void SetId(const std::string userId_) {
+		userId = userId_;
+	}
+
+	std::string GetId() {
+		return userId;
+	}
+
 	uint16_t GetObjNum() {
 		return connObjNum;
 	}
@@ -230,6 +238,8 @@ private:
 
 	// 56 bytes
 	OverlappedEx acceptOvlap;
+
+	std::string userId;
 
 	// 8 bytes
 	SOCKET userSkt;
