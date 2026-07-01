@@ -86,20 +86,25 @@ void LobbyRedisSubscriber::HandleLobbyEvent(const std::string& channel, const st
 }
 
 void LobbyRedisSubscriber::HandleFriendOnline(const std::string& message) {
-    // message 형식 : {"type":1,"data":{"userPk":13}}
     uint32_t userPk = ParseUintField(message, "userPk");
     if (userPk == 0) return;
 
-    
-    std::cout << "[HandleFriendOnline] userPk: " << userPk << '\n';
+    // targets 파싱
+    auto targets = ParseTargets(message);  // [userPk, targetPk]
+    for (auto targetPk : targets) {
+        RedisManager::GetInstance().SendFriendStatusToUser(targetPk, userPk, 1);  // targetPk에게 userPk의 온라인 메시지 전달
+    }
 }
 
 void LobbyRedisSubscriber::HandleFriendOffline(const std::string& message) {
-    // message 형식 : {"type":2,"data":{"userPk":13}}
     uint32_t userPk = ParseUintField(message, "userPk");
     if (userPk == 0) return;
 
-    std::cout << "[HandleFriendOffline] userPk: " << userPk << '\n';
+    // targets 파싱
+    auto targets = ParseTargets(message);  // [userPk, targetPk]
+    for (auto targetPk : targets) {
+        RedisManager::GetInstance().SendFriendStatusToUser(targetPk, userPk, 0);  // targetPk에게 userPk의 오프라인 메시지 전달
+    }
 }
 
 void LobbyRedisSubscriber::HandleCostumeChange(const std::string& message) {
@@ -131,7 +136,6 @@ void LobbyRedisSubscriber::HandleFriendRemoved(const std::string& message) {
     std::cout << "[HandleFriendRemoved] targetPk: " << targetPk << " senderPk: " << senderPk << '\n';
 }
 
-
 // message에서 특정 키의 정수값 추출하는 함수
 // {"type":1,"data":{"userPk":13}}에서 13을 추출
 uint32_t LobbyRedisSubscriber::ParseUintField(const std::string& message, const std::string& key) {
@@ -142,4 +146,26 @@ uint32_t LobbyRedisSubscriber::ParseUintField(const std::string& message, const 
     
     pos += search.length();
     return static_cast<uint32_t>(std::stoul(message.substr(pos)));
+}
+
+// message에서 targets 배열을 추출하는 함수
+// {"type":1,"data":{"userPk":13,"targets":[14,15......]}}에서 {14, 15.....} 추출
+std::vector<uint32_t> LobbyRedisSubscriber::ParseTargets(const std::string& message) {
+    std::vector<uint32_t> targets;
+    auto pos = message.find("\"targets\":[");
+    if (pos == std::string::npos) return targets;
+
+    pos += 11;  // "targets":[ 길이
+    auto end = message.find("]", pos);
+    if (end == std::string::npos) return targets;
+
+    std::string arr = message.substr(pos, end - pos);
+    std::stringstream ss(arr);
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+        if (!token.empty()) {
+            targets.push_back(std::stoul(token));
+        }
+    }
+    return targets;
 }

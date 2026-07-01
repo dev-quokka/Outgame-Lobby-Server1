@@ -42,7 +42,12 @@ struct USER_LOBBY_CONNECT_RESPONSE : PACKET_HEADER {
 	bool isSuccess = false;
 };
 
-// 받은 친구 요청에 대한 응답 패킷
+struct FRIEND_STATUS_NOTIFY : PACKET_HEADER {
+	uint32_t friendPk = 0;  // 상태가 바뀐 친구 pk
+	uint8_t  onlineStatus = 0;  // 0=오프라인, 1=로비, 2=게임중
+};
+
+// 받은 친구 요청에 대한 응답 패킷 (수락했는지 거절했는지)
 struct FRIEND_ACTION_REQUEST : PACKET_HEADER {
 	char    targetId[MAX_USER_ID_LEN] = {};  // 대상 유저 ID
 	uint8_t action = 0;  // 0=수락, 1=거절/삭제
@@ -51,154 +56,6 @@ struct FRIEND_ACTION_REQUEST : PACKET_HEADER {
 struct FRIEND_ACTION_RESPONSE : PACKET_HEADER {
 	char    targetId[MAX_USER_ID_LEN] = {};
 	bool    isSuccess = false;
-};
-
-
-struct USER_LOGOUT_REQUEST_PACKET : PACKET_HEADER {
-
-};
-
-struct SYNCRONIZE_LEVEL_REQUEST : PACKET_HEADER {
-	uint16_t level;
-	uint16_t userPk;
-	unsigned int currentExp;
-};
-
-struct SYNCRONIZE_LOGOUT_REQUEST : PACKET_HEADER {
-	uint16_t userPk;
-};
-
-struct SERVER_USER_COUNTS_REQUEST : PACKET_HEADER {
-
-};
-
-struct SERVER_USER_COUNTS_RESPONSE : PACKET_HEADER {
-	uint16_t serverCount;
-	uint16_t serverUserCnt[MAX_SERVER_USERS + 1];
-};
-
-struct SHOP_DATA_REQUEST : PACKET_HEADER {
-
-};
-
-struct SHOP_DATA_RESPONSE : PACKET_HEADER {
-	uint16_t shopItemSize;
-};
-
-struct PASS_DATA_REQUEST : PACKET_HEADER {
-
-};
-
-struct PASS_DATA_RESPONSE : PACKET_HEADER {
-	uint16_t passDataSize;
-};
-
-struct MOVE_SERVER_REQUEST : PACKET_HEADER {
-	uint16_t serverNum;
-};
-
-struct MOVE_SERVER_RESPONSE : PACKET_HEADER {
-	char serverToken[MAX_JWT_TOKEN_LEN + 1];
-	char ip[MAX_IP_LEN + 1];
-	uint16_t port;
-};
-
-struct RAID_READY_REQUEST : PACKET_HEADER {
-	char serverToken[MAX_JWT_TOKEN_LEN + 1];
-	char ip[MAX_IP_LEN + 1];
-	uint16_t port;
-	uint16_t roomNum;
-};
-
-struct RAID_READY_FAIL : PACKET_HEADER {
-	uint16_t userCenterObjNum;
-	uint16_t roomNum;
-};
-
-struct RAID_RANKING_REQUEST : PACKET_HEADER {
-	uint16_t startRank;
-};
-
-struct RAID_RANKING_RESPONSE : PACKET_HEADER {
-	uint16_t rkCount;
-	char reqScore[MAX_SCORE_SIZE + 1];
-};
-
-struct SHOP_BUY_ITEM_REQUEST : PACKET_HEADER {
-	uint16_t itemCode = 0;
-	uint16_t daysOrCount = 0; // [장비: 유저가 원하는 아이템의 사용 기간, 소비: 유저가 원하는 아이템 개수 묶음] 
-	uint16_t itemType; // 0: 장비, 1: 소비, 2: 재료
-	uint16_t position;
-};
-
-
-// ======================= CHANNEL SERVER =======================
-
-struct CHANNEL_SERVER_CONNECT_REQUEST : PACKET_HEADER {
-	uint16_t channelServerNum;
-};
-
-struct CHANNEL_SERVER_CONNECT_RESPONSE : PACKET_HEADER {
-	bool isSuccess = false;
-};
-
-struct USER_DISCONNECT_AT_CHANNEL_REQUEST : PACKET_HEADER {
-	uint16_t channelServerNum;
-};
-
-struct SYNC_EQUIPMENT_ENHANCE_REQUEST : PACKET_HEADER {
-	uint16_t itemPosition;
-	uint16_t enhancement;
-	uint16_t userPk;
-};
-
-
-// ======================= MATCHING SERVER =======================
-
-struct MATCHING_SERVER_CONNECT_REQUEST : PACKET_HEADER {
-
-};
-
-struct MATCHING_SERVER_CONNECT_RESPONSE : PACKET_HEADER {
-	bool isSuccess = false;
-};
-
-struct MATCHING_REQUEST_TO_MATCHING_SERVER : PACKET_HEADER {
-	uint16_t userPk;
-	uint16_t userCenterObjNum;
-	uint16_t userGroupNum;
-};
-
-struct MATCHING_RESPONSE_FROM_MATCHING_SERVER : PACKET_HEADER {
-	uint16_t userCenterObjNum;
-	bool isSuccess = false;
-};
-
-struct MATCHING_SUCCESS_RESPONSE_TO_CENTER_SERVER : PACKET_HEADER {
-	uint16_t userCenterObjNum;
-	uint16_t roomNum;
-};
-
-struct RAID_START_FAIL_REQUEST_TO_MATCHING_SERVER : PACKET_HEADER {
-	uint16_t roomNum;
-};
-
-struct MATCHING_CANCEL_REQUEST : PACKET_HEADER {
-
-};
-
-struct MATCHING_CANCEL_RESPONSE : PACKET_HEADER {
-	bool isSuccess = false;
-};
-
-struct MATCHING_CANCEL_REQUEST_TO_MATCHING_SERVER : PACKET_HEADER {
-	uint16_t userCenterObjNum;
-	uint16_t userGroupNum;
-};
-
-struct MATCHING_CANCEL_RESPONSE_FROM_MATCHING_SERVER : PACKET_HEADER {
-	uint16_t userCenterObjNum;
-	bool isSuccess = false;
 };
 
 
@@ -211,7 +68,7 @@ enum class PACKET_ID : uint16_t {
 	USER_LOBBY_CONNECT_RESPONSE = 2,
 
 
-
+	FRIEND_STATUS_NOTIFY = 30,
 	FRIEND_ACTION_REQUEST = 31,
 	FRIEND_ACTION_RESPONSE = 32,
 

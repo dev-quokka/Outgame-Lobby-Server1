@@ -304,26 +304,26 @@ std::optional<uint32_t> MySQLManager::RemoveFriend(uint32_t userPk_, const std::
     }
 }
 
-std::optional<std::vector<FriendInfoDB>> MySQLManager::GetUserFriendsDB(uint32_t userPk_) {
+std::optional<std::vector<uint32_t>> MySQLManager::GetUserFriendsPks(uint32_t userPk_) {
     semaphore.acquire();
 
     MYSQL* ConnPtr = GetConnection();
     if (!ConnPtr) {
-        std::cerr << "[GetUserFriendsDB] dbPool is empty.\n";
+        std::cerr << "[GetUserFriendsPks] dbPool is empty.\n";
         return std::nullopt;
     }
     auto tempAutoConn = AutoConn(ConnPtr, dbPool, dbPoolMutex, semaphore);
 
     try {
         MYSQL_STMT* stmt = mysql_stmt_init(ConnPtr);
+
         std::string query =
-            "SELECT f.friend_pk, u.user_id, f.status "
+            "SELECT f.friend_pk "
             "FROM friend f "
-            "JOIN user u ON f.friend_pk = u.user_pk "
             "WHERE f.user_pk = ?";
 
         if (mysql_stmt_prepare(stmt, query.c_str(), query.length()) != 0) {
-            std::cerr << "[GetUserFriendsDB] Prepare Error: " << mysql_stmt_error(stmt) << '\n';
+            std::cerr << "[GetUserFriendsPks] Prepare Error: " << mysql_stmt_error(stmt) << '\n';
             mysql_stmt_close(stmt);
             return std::nullopt;
         }
@@ -337,51 +337,33 @@ std::optional<std::vector<FriendInfoDB>> MySQLManager::GetUserFriendsDB(uint32_t
         mysql_stmt_bind_param(stmt, param);
 
         if (mysql_stmt_execute(stmt) != 0) {
-            std::cerr << "[GetUserFriendsDB] Execute Error: " << mysql_stmt_error(stmt) << '\n';
+            std::cerr << "[GetUserFriendsPks] Execute Error: " << mysql_stmt_error(stmt) << '\n';
             mysql_stmt_close(stmt);
             return std::nullopt;
         }
 
         // 결과 바인딩
         uint32_t friendPk = 0;
-        char     friendId[MAX_USER_ID_LEN] = {};
-        uint8_t  status = 0;
-        unsigned long idLen = 0;
 
-        MYSQL_BIND result[3];
+        MYSQL_BIND result[1];
         memset(result, 0, sizeof(result));
-
         result[0].buffer_type = MYSQL_TYPE_LONG;
         result[0].buffer = &friendPk;
         result[0].is_unsigned = true;
 
-        result[1].buffer_type = MYSQL_TYPE_STRING;
-        result[1].buffer = friendId;
-        result[1].buffer_length = sizeof(friendId);
-        result[1].length = &idLen;
-
-        result[2].buffer_type = MYSQL_TYPE_TINY;
-        result[2].buffer = &status;
-        result[2].is_unsigned = true;
-
         mysql_stmt_bind_result(stmt, result);
         mysql_stmt_store_result(stmt);
 
-        std::vector<FriendInfoDB> friends;
+        std::vector<uint32_t> friendPks;
         while (mysql_stmt_fetch(stmt) == 0) {
-            FriendInfoDB info;
-            info.friendPk = friendPk;
-            info.friendStatus = status;
-            strncpy_s(info.friendId, sizeof(info.friendId),
-                friendId, idLen);
-            friends.push_back(info);
+            friendPks.push_back(friendPk);
         }
 
         mysql_stmt_close(stmt);
-        return friends;
+        return friendPks;
     }
     catch (const std::exception& e) {
-        std::cerr << "[GetUserFriendsDB] Exception: " << e.what() << '\n';
+        std::cerr << "[GetUserFriendsPks] Exception: " << e.what() << '\n';
         return std::nullopt;
     }
 }

@@ -17,7 +17,7 @@ public:
 
 	std::optional<uint32_t> AcceptFriend(uint32_t userPk_, const std::string& targetId_);
 	std::optional<uint32_t> RemoveFriend(uint32_t userPk_, const std::string& targetId_);
-	std::optional<std::vector<FriendInfoDB>> GetUserFriendsDB(uint32_t userPk_);
+	std::optional<std::vector<uint32_t>> GetUserFriendsPks(uint32_t userPk_);
 
 	MySQLManager(const MySQLManager&) = delete;
 	MySQLManager& operator=(const MySQLManager&) = delete;

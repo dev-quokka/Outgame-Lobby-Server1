@@ -19,8 +19,9 @@ public:
     ConnUser* FindUser(uint16_t connObjNum_);
 
     void SetPkToObjNum(uint32_t pk_, uint16_t connObjNum_);
-    uint16_t GetPkToObjNum(uint32_t pk_);
+    uint16_t GetObjNumByPk(uint32_t pk_);
     void DelPkToObjNum(uint32_t pk_);
+
 
 private:
     std::mutex pkMapMutex;

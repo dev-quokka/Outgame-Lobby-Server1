@@ -16,11 +16,12 @@ void ConnUsersManager::SetPkToObjNum(uint32_t pk_, uint16_t connObjNum_) {
 	pkToObjNum[pk_] = connObjNum_;
 }
 
-uint16_t ConnUsersManager::GetPkToObjNum(uint32_t pk_) {
+uint16_t ConnUsersManager::GetObjNumByPk(uint32_t pk_) {
 	std::lock_guard<std::mutex> lg{ pkMapMutex };
 	return pkToObjNum[pk_];
 }
 
 void ConnUsersManager::DelPkToObjNum(uint32_t pk_) {
-	
+	std::lock_guard<std::mutex> lg{ pkMapMutex };
+	pkToObjNum.erase(pk_);
 }

@@ -1,3 +1,7 @@
+// 로비 서버가 Redis pub/sub 채널을 구독하여
+// 다른 서버에서 발행된 이벤트 메시지를 받아 처리하는 클래스
+// 처리 이벤트: 친구 온/오프라인 알림, 친구 수락/삭제 알림, 파티원 코스튬 변경 요청 등
+
 #pragma once
 #include <sw/redis++/redis++.h>
 #include <iostream>
@@ -22,6 +26,7 @@ public:
     void HandleFriendRemoved(const std::string& message);
 
     uint32_t ParseUintField(const std::string& message, const std::string& key);
+    std::vector<uint32_t> ParseTargets(const std::string& message);
 
     enum class LobbyEventType : uint8_t {
         Unknown = 0,

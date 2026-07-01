@@ -83,6 +83,17 @@ public:
 	}
 
 
+	// ======================= FRIENDS =======================
+
+	void SetFriendPks(const std::vector<uint32_t>& pks) { 
+		friendPks_ = std::unordered_set<uint32_t>(pks.begin(), pks.end());
+	}
+	void DelFriendPks() { friendPks_.clear(); }
+
+	void AddFriend(uint32_t pk) { friendPks_.insert(pk); }
+	void RemoveFriend(uint32_t pk) { friendPks_.erase(pk); }
+
+
 	// ======================= CIRCULAR BUFFER =======================
 
 	bool WriteRecvData(const char* data_, uint32_t size_) { // Set recvdata in circular buffer 
@@ -232,6 +243,8 @@ private:
 
 	// 120 bytes
 	std::unique_ptr<CircularBuffer> circularBuffer;
+
+	std::unordered_set<uint32_t> friendPks_;
 
 	// 64 bytes
 	char acceptBuf[64] = { 0 };
