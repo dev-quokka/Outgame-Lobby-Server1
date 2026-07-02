@@ -5,6 +5,8 @@
 #include <string>
 #include <chrono>
 
+#include "FailCode.h"
+
 constexpr uint16_t MAX_IP_LEN = 32;
 constexpr uint16_t MAX_SERVER_USERS = 128;
 constexpr uint16_t MAX_JWT_TOKEN_LEN = 257;
@@ -104,6 +106,39 @@ struct FRIEND_ACTION_RESPONSE : PACKET_HEADER {
 	bool    isSuccess = false;
 };
 
+struct COSTUME_CHANGE_NOTIFY_TO_USER : PACKET_HEADER {
+	char     userId[MAX_USER_ID_LEN] = {};
+	uint32_t userPk = 0;
+	uint32_t itemCode = 0;
+	uint8_t  slot = 0;
+};
+
+
+
+// ************* COSTUME *************
+
+// 코스튬 변경 요청
+struct COSTUME_CHANGE_REQUEST : PACKET_HEADER {
+	uint32_t itemCode = 0;  // 변경할 아이템 코드
+	uint8_t  slot = 0;  // 1=head, 2=body, 3=legs, 4=feet
+};
+
+// 코스튬 변경 응답
+struct COSTUME_CHANGE_RESPONSE : PACKET_HEADER {
+	uint32_t itemCode = 0;
+	uint8_t  slot = 0;
+	uint8_t  failCode = 0; 	// 0=성공, 1=인벤에 없음, 2=잘못된 슬롯, 3=서버오류
+	bool     isSuccess = false;
+};
+
+// 다른 파티원 옷 변경 전달 받는 패킷 (모든 파티원에게 전달)
+struct COSTUME_CHANGE_NOTIFY : PACKET_HEADER {
+	char     userId[MAX_USER_ID_LEN] = {};
+	uint32_t userPk = 0;
+	uint32_t itemCode = 0;
+	uint8_t  slot = 0;
+};
+
 
 
 enum class PACKET_ID : uint16_t {
@@ -118,6 +153,7 @@ enum class PACKET_ID : uint16_t {
 	USER_SEARCH_REQUEST = 25,
 	USER_SEARCH_RESPONSE = 26,
 
+
 	FRIEND_REQUEST_REQUEST = 30,
 	FRIEND_REQUEST_RESPONSE = 31,
 	FRIEND_REQUEST_NOTIFY = 32,
@@ -127,4 +163,11 @@ enum class PACKET_ID : uint16_t {
 
 	FRIEND_ACTION_REQUEST = 35,
 	FRIEND_ACTION_RESPONSE = 36,
+
+
+
+	COSTUME_CHANGE_REQUEST = 51,
+	COSTUME_CHANGE_RESPONSE = 52,
+
+	COSTUME_CHANGE_NOTIFY = 55,
 };

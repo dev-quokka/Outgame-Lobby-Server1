@@ -161,6 +161,31 @@ void LobbyRedisSubscriber::HandleFriendRemoved(const std::string& message) {
 
 
 
+void LobbyRedisSubscriber::HandleCostumeChange(const std::string& message) {
+    // {"type":3,"data":{"userPk":13,"userId":"dongchan","slot":1,"itemCode":1024,"targets":[14,15]}}
+    uint32_t userPk = ParseUintField(message, "userPk");
+    std::string userId = ParseStringField(message, "userId");
+    uint32_t slot = ParseUintField(message, "slot");
+    uint32_t itemCode = ParseUintField(message, "itemCode");
+    if (userPk == 0 || userId.empty()) return;
+
+    auto targets = ParseTargets(message);
+    for (auto targetPk : targets) {
+        RedisManager::GetInstance().SendCostumeChangeToUser(targetPk, userPk, userId,static_cast<uint8_t>(slot), itemCode);
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
 // message에서 특정 키의 정수값 추출하는 함수
 // {"type":1,"data":{"userPk":13}}에서 13을 추출
 uint32_t LobbyRedisSubscriber::ParseUintField(const std::string& message, const std::string& key) {

@@ -5,6 +5,7 @@
 
 #include "DBConfig.h"
 #include "UserTypes.h"
+#include "FailCode.h"
 
 class MySQLManager {
 public:
@@ -16,11 +17,16 @@ public:
 	void Shutdown();
 
 	std::optional<UserSessionInfo> GetUserSessionInfo(uint32_t userPk_);
+
+
 	std::optional<uint32_t> AcceptFriend(uint32_t userPk_, const std::string& targetId_);
 	std::optional<uint32_t> RemoveFriend(uint32_t userPk_, const std::string& targetId_);
 	std::optional<std::vector<uint32_t>> GetUserFriendsPks(uint32_t userPk_);
 	std::optional<UserSearchResult> SearchUser(const std::string& userId_);
 	std::optional<uint32_t> SendFriendRequest(uint32_t userPk_, const std::string& targetId_);
+
+
+	std::optional<CostumeChangeFailCode> UpdateEquipSlot(uint32_t userPk_, uint8_t slot_, uint32_t itemCode_);
 
 
 

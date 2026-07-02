@@ -140,6 +140,7 @@
     <ClInclude Include="ConnUsersManager.h" />
     <ClInclude Include="DBConfig.h" />
     <ClInclude Include="Define.h" />
+    <ClInclude Include="FailCode.h" />
     <ClInclude Include="LobbyHeartbeat.h" />
     <ClInclude Include="LobbyRedisSubscriber.h" />
     <ClInclude Include="MySQLManager.h" />

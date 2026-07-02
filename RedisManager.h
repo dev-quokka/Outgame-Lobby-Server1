@@ -37,25 +37,31 @@ public:
 
     // ====================== REDIS =======================
     bool VerifyUserToken(const std::string& userId_, const char* token_, uint32_t& outUserPk_);
-    void PublishToUsers(const std::vector<uint32_t>& targetPks_, const std::string& message_);
-
-    void SendFriendRequestToUser(uint32_t targetPk_, uint32_t senderPk_, const std::string& senderId_, uint16_t senderLevel_, uint8_t onlineStatus_);
+    
+    
     void NotifyFriendOnline(uint32_t userPk_, const std::vector<uint32_t>& friendPks_);
     void NotifyFriendOffline(uint32_t userPk_);
-
+    void NotifyCostumeChangeToParty(uint32_t userPk_, const std::string& userId_, uint32_t partyId_, uint8_t slot_, uint32_t itemCode_);
 
 
     // ====================== UserState =======================
     void UserConnect(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
     void UserDisConnect(uint16_t connObjNum_);
 
+
     void ProcessUserSearch(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
     void ProcessFriendRequest(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
-
     void ProcessFriendAccept(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+    void ProcessCostumeChange(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+
+
     void SendFriendStatusToUser(uint32_t targetPk_, uint32_t friendPk_, uint16_t status_);
     void SendFriendAcceptToUser(uint32_t targetPk_, uint32_t friendPk_, uint16_t status_);
+    void SendFriendRequestToUser(uint32_t targetPk_, uint32_t senderPk_, const std::string& senderId_, uint16_t senderLevel_, uint8_t onlineStatus_);
+    void SendCostumeChangeToUser(uint32_t targetPk_, uint32_t userPk_, const std::string& userId_, uint8_t slot_, uint32_t itemCode_);
 
+
+    void PublishToUsers(const std::vector<uint32_t>& targetPks_, const std::string& message_);
 
 
 

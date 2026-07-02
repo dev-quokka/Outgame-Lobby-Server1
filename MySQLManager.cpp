@@ -659,3 +659,125 @@ std::optional<uint32_t> MySQLManager::SendFriendRequest(uint32_t userPk_, const 
         return std::nullopt;
     }
 }
+
+
+
+std::optional<CostumeChangeFailCode> MySQLManager::UpdateEquipSlot(uint32_t userPk_, uint8_t slot_, uint32_t itemCode_) {
+    semaphore.acquire();
+
+    MYSQL* ConnPtr = GetConnection();
+    if (!ConnPtr) {
+        std::cerr << "[UpdateEquipSlot] dbPool is empty.\n";
+        return CostumeChangeFailCode::ServerError;
+    }
+    auto tempAutoConn = AutoConn(ConnPtr, dbPool, dbPoolMutex, semaphore);
+
+    try {
+        if (mysql_query(ConnPtr, "START TRANSACTION") != 0) {
+            return CostumeChangeFailCode::ServerError;
+        }
+
+        // 1. 슬롯 유효성 확인
+        if (slot_ < 1 || slot_ > 4) {
+            mysql_query(ConnPtr, "ROLLBACK");
+            return CostumeChangeFailCode::InvalidSlot;
+        }
+
+        // 2. 인벤토리에 해당 아이템 있는지 확인
+        MYSQL_STMT* stmtCheck = mysql_stmt_init(ConnPtr);
+        std::string checkQuery =
+            "SELECT COUNT(*) FROM user_inventory "
+            "WHERE user_pk = ? AND item_code = ? AND item_type = 1";
+        // item_type=1 이 코스튬
+
+        if (mysql_stmt_prepare(stmtCheck,
+            checkQuery.c_str(), checkQuery.length()) != 0) {
+            mysql_query(ConnPtr, "ROLLBACK");
+            mysql_stmt_close(stmtCheck);
+            return CostumeChangeFailCode::ServerError;
+        }
+
+        MYSQL_BIND checkParam[2];
+        memset(checkParam, 0, sizeof(checkParam));
+        checkParam[0].buffer_type = MYSQL_TYPE_LONG;
+        checkParam[0].buffer = &userPk_;
+        checkParam[0].is_unsigned = true;
+        checkParam[1].buffer_type = MYSQL_TYPE_LONG;
+        checkParam[1].buffer = &itemCode_;
+        checkParam[1].is_unsigned = true;
+        mysql_stmt_bind_param(stmtCheck, checkParam);
+
+        uint32_t count = 0;
+        MYSQL_BIND checkResult[1];
+        memset(checkResult, 0, sizeof(checkResult));
+        checkResult[0].buffer_type = MYSQL_TYPE_LONG;
+        checkResult[0].buffer = &count;
+        checkResult[0].is_unsigned = true;
+        mysql_stmt_bind_result(stmtCheck, checkResult);
+        mysql_stmt_execute(stmtCheck);
+        mysql_stmt_store_result(stmtCheck);
+        mysql_stmt_fetch(stmtCheck);
+        mysql_stmt_close(stmtCheck);
+
+        if (count == 0) {
+            mysql_query(ConnPtr, "ROLLBACK");
+            return CostumeChangeFailCode::NotInInventory;
+        }
+
+        // 3. user_equip_slot UPDATE
+        MYSQL_STMT* stmtUpdate = mysql_stmt_init(ConnPtr);
+        std::string updateQuery =
+            "INSERT INTO user_equip_slot (user_pk, slot_type, item_code) "
+            "VALUES (?, ?, ?) "
+            "ON DUPLICATE KEY UPDATE item_code = ?";
+
+        if (mysql_stmt_prepare(stmtUpdate,
+            updateQuery.c_str(), updateQuery.length()) != 0) {
+            std::cerr << "[UpdateEquipSlot] Prepare Error: " << mysql_stmt_error(stmtUpdate) << '\n';
+            mysql_query(ConnPtr, "ROLLBACK");
+            mysql_stmt_close(stmtUpdate);
+            return CostumeChangeFailCode::ServerError;
+        }
+
+        MYSQL_BIND updateParam[4];
+        memset(updateParam, 0, sizeof(updateParam));
+
+        updateParam[0].buffer_type = MYSQL_TYPE_LONG;
+        updateParam[0].buffer = &userPk_;
+        updateParam[0].is_unsigned = true;
+
+        updateParam[1].buffer_type = MYSQL_TYPE_TINY;
+        updateParam[1].buffer = &slot_;
+        updateParam[1].is_unsigned = true;
+
+        updateParam[2].buffer_type = MYSQL_TYPE_LONG;
+        updateParam[2].buffer = &itemCode_;
+        updateParam[2].is_unsigned = true;
+
+        updateParam[3].buffer_type = MYSQL_TYPE_LONG;
+        updateParam[3].buffer = &itemCode_;
+        updateParam[3].is_unsigned = true;
+
+        if (mysql_stmt_bind_param(stmtUpdate, updateParam) != 0 ||
+            mysql_stmt_execute(stmtUpdate) != 0) {
+            std::cerr << "[UpdateEquipSlot] Execute Error: " << mysql_stmt_error(stmtUpdate) << '\n';
+            mysql_query(ConnPtr, "ROLLBACK");
+            mysql_stmt_close(stmtUpdate);
+            return CostumeChangeFailCode::ServerError;
+        }
+
+        mysql_stmt_close(stmtUpdate);
+        mysql_query(ConnPtr, "COMMIT");
+
+        std::cout << "[UpdateEquipSlot] Success. userPk: " << userPk_
+            << " slot: " << (int)slot_
+            << " itemCode: " << itemCode_ << '\n';
+
+        return CostumeChangeFailCode::None;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[UpdateEquipSlot] Exception: " << e.what() << '\n';
+        mysql_query(ConnPtr, "ROLLBACK");
+        return CostumeChangeFailCode::ServerError;
+    }
+}

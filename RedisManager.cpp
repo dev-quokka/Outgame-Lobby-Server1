@@ -278,54 +278,54 @@ void RedisManager::ProcessFriendRequest(uint16_t connObjNum_, uint16_t packetSiz
     me->PushSendMsg(sizeof(res), (char*)&res);
 }
 
-void RedisManager::PublishToUsers(const std::vector<uint32_t>& targetPks_, const std::string& eventMessage_) {
-    if (targetPks_.empty()) return;
+void RedisManager::ProcessCostumeChange(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_) {
+    auto reqPacket = reinterpret_cast<COSTUME_CHANGE_REQUEST*>(pPacket_);
 
+    COSTUME_CHANGE_RESPONSE res;
+    res.PacketId = (uint16_t)PACKET_ID::COSTUME_CHANGE_RESPONSE;
+    res.PacketLength = sizeof(COSTUME_CHANGE_RESPONSE);
+    res.slot = reqPacket->slot;
+    res.itemCode = reqPacket->itemCode;
+
+    auto me = connUsersManager->FindUser(connObjNum_);
+    uint32_t myPk = me->GetPk();
+    std::string myId = me->GetId();
+
+    // DB - 인벤 확인 + 슬롯 업데이트
+    auto failCode = MySQLManager::GetInstance().UpdateEquipSlot(
+        myPk, reqPacket->slot, reqPacket->itemCode);
+
+    if (failCode != CostumeChangeFailCode::None) {
+        res.isSuccess = false;
+        res.failCode = (uint8_t)failCode.value();
+        me->PushSendMsg(sizeof(res), (char*)&res);
+        return;
+    }
+
+    // Redis user:{pk}:equip 갱신
     try {
-        // pipeline으로 서버 위치 조회
-        auto pipe = redis->pipeline();
-        for (auto pk : targetPks_) {
-            pipe.hget("user:" + std::to_string(pk), "server");
+        std::string slotName;
+        switch (reqPacket->slot) {
+        case 1: slotName = "head"; break;
+        case 2: slotName = "body"; break;
+        case 3: slotName = "legs"; break;
+        case 4: slotName = "feet"; break;
+        default: slotName = "head"; break;
         }
-        auto replies = pipe.exec();
-
-        // 서버별로 타겟 pk 그룹핑
-        std::unordered_map<std::string, std::vector<uint32_t>> serverTargets;
-        for (int i = 0; i < (int)targetPks_.size(); i++) {
-            try {
-                auto server = replies.get<sw::redis::OptionalString>(i);
-                if (server.has_value()) {
-                    serverTargets[*server].push_back(targetPks_[i]);
-                }
-            }
-            catch (...) { continue; } // 예외 발생한 pk 하나만 건너뛰고 나머지는 계속 처리
-        }
-
-        // 기존 메시지의 data 안에 targets 삽입
-        // 기존 형태: {"type":1,"data":{"userPk":13}}
-        // 수정 형태: {"type":1,"data":{"userPk":13,"targets":[14,15, .....]}}
-
-        // 서버별로 타겟 pk를 묶어서 한 번에 publish
-        // 같은 서버에 친구가 N명 있어도 publish는 1번 -> Redis 왕복 최소화
-        for (const auto& [server, pks] : serverTargets) {
-            std::string targets = "[";
-            for (int i = 0; i < (int)pks.size(); i++) {
-                if (i > 0) targets += ",";
-                targets += std::to_string(pks[i]);
-            }
-            targets += "]";
-
-            std::string message = eventMessage_;
-            auto pos = message.rfind("}}");  // 마지막 }} 찾기
-            message.insert(pos, R"(,"targets":)" + targets);
-
-            redis->publish(server + ":events", message);
-        }
+        std::string equipKey = "user:" + std::to_string(myPk) + ":equip";
+        redis->hset(equipKey, slotName, std::to_string(reqPacket->itemCode));
     }
     catch (const std::exception& e) {
-        std::cerr << "[PublishToUsers] Error: " << e.what() << '\n';
+        std::cerr << "[ProcessCostumeChange] Redis error: "
+            << e.what() << '\n';
+        // Redis 실패해도 DB는 성공했으니 계속 진행
     }
+
+    res.isSuccess = true;
+    res.failCode = (uint8_t)CostumeChangeFailCode::None;
+    me->PushSendMsg(sizeof(res), (char*)&res);
 }
+
 
 void RedisManager::NotifyFriendOnline(uint32_t userPk_, const std::vector<uint32_t>& friendPks_) {
     if (friendPks_.empty()) return;
@@ -354,6 +354,36 @@ void RedisManager::NotifyFriendOffline(uint32_t userPk_) {
 
     // 4. PublishToUsers가 알아서 서버별로 묶어서 publish (서버 정보 있는 애들)
     PublishToUsers(friendPks, message);
+}
+
+void RedisManager::NotifyCostumeChangeToParty(uint32_t userPk_, const std::string& userId_,uint32_t partyId_,uint8_t slot_, uint32_t itemCode_) {
+    try {
+        // 파티원 pk 목록 조회
+        std::string memberKey = "party:" + std::to_string(partyId_) + ":members";
+        std::unordered_set<std::string> memberPkStrs;
+        redis->smembers(memberKey,
+            std::inserter(memberPkStrs, memberPkStrs.begin()));
+
+        std::vector<uint32_t> memberPks;
+        for (const auto& s : memberPkStrs) {
+            uint32_t pk = std::stoul(s);
+            if (pk != userPk_) memberPks.push_back(pk);  // 본인은 제외하기
+        }
+        if (memberPks.empty()) return;
+
+        std::string message =
+            R"({"type":3,"data":{"userPk":)"
+            + std::to_string(userPk_)
+            + R"(,"userId":")" + userId_ + R"(")"
+            + R"(,"slot":)" + std::to_string(slot_)
+            + R"(,"itemCode":)" + std::to_string(itemCode_)
+            + R"(}})";
+
+        PublishToUsers(memberPks, message);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[NotifyCostumeChangeToParty] Error: " << e.what() << '\n';
+    }
 }
 
 
@@ -429,6 +459,13 @@ void RedisManager::UserDisConnect(uint16_t connObjNum_) {
     connUsersManager->DelPkToObjNum(userPk);
 }
 
+
+
+
+
+
+
+
 void RedisManager::SendFriendRequestToUser(uint32_t targetPk_, uint32_t senderPk_, const std::string& senderId_, uint16_t senderLevel_, uint8_t onlineStatus_) {
     FRIEND_REQUEST_NOTIFY notify;
     notify.PacketId = (uint16_t)PACKET_ID::FRIEND_REQUEST_NOTIFY;
@@ -482,15 +519,91 @@ void RedisManager::SendFriendAcceptToUser(uint32_t targetPk_, uint32_t friendPk_
     tempConnUser->PushSendMsg(sizeof(friendNotifyPacket), (char*)&friendNotifyPacket);
 }
 
+void RedisManager::SendCostumeChangeToUser(uint32_t targetPk_, uint32_t userPk_, const std::string& userId_, uint8_t slot_, uint32_t itemCode_) {
+    COSTUME_CHANGE_NOTIFY notify;
+    notify.PacketId = (uint16_t)PACKET_ID::COSTUME_CHANGE_NOTIFY;
+    notify.PacketLength = sizeof(notify);
+
+    auto tempObjNum = connUsersManager->GetObjNumByPk(targetPk_);
+    auto temoUser = connUsersManager->FindUser(tempObjNum);
+
+    notify.userPk = userPk_;
+    strncpy_s(notify.userId, sizeof(notify.userId), userId_.c_str(), _TRUNCATE);
+    notify.slot = slot_;
+    notify.itemCode = itemCode_;
+    temoUser->PushSendMsg(sizeof(notify), (char*)&notify);
+}
+
+
+
+
+
+
+
+
+void RedisManager::PublishToUsers(const std::vector<uint32_t>& targetPks_, const std::string& eventMessage_) {
+    if (targetPks_.empty()) return;
+
+    try {
+        // pipeline으로 서버 위치 조회
+        auto pipe = redis->pipeline();
+        for (auto pk : targetPks_) {
+            pipe.hget("user:" + std::to_string(pk), "server");
+        }
+        auto replies = pipe.exec();
+
+        // 서버별로 타겟 pk 그룹핑
+        std::unordered_map<std::string, std::vector<uint32_t>> serverTargets;
+        for (int i = 0; i < (int)targetPks_.size(); i++) {
+            try {
+                auto server = replies.get<sw::redis::OptionalString>(i);
+                if (server.has_value()) {
+                    serverTargets[*server].push_back(targetPks_[i]);
+                }
+            }
+            catch (...) { continue; } // 예외 발생한 pk 하나만 건너뛰고 나머지는 계속 처리
+        }
+
+        // 기존 메시지의 data 안에 targets 삽입
+        // 기존 형태: {"type":1,"data":{"userPk":13}}
+        // 수정 형태: {"type":1,"data":{"userPk":13,"targets":[14,15, .....]}}
+
+        // 서버별로 타겟 pk를 묶어서 한 번에 publish
+        // 같은 서버에 친구가 N명 있어도 publish는 1번 -> Redis 왕복 최소화
+        for (const auto& [server, pks] : serverTargets) {
+            std::string targets = "[";
+            for (int i = 0; i < (int)pks.size(); i++) {
+                if (i > 0) targets += ",";
+                targets += std::to_string(pks[i]);
+            }
+            targets += "]";
+
+            std::string message = eventMessage_;
+            auto pos = message.rfind("}}");  // 마지막 }} 찾기
+            message.insert(pos, R"(,"targets":)" + targets);
+
+            redis->publish(server + ":events", message);
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[PublishToUsers] Error: " << e.what() << '\n';
+    }
+}
+
+
+
+
+
+
 
 // ====================== Friend =======================
 
 // 친구 요청 삭제 or 받기 => 완료
 
-// 친구 목록 확인 (1. 상태(오프, 온라인 - 로비, 온라인 - 게임중), 2. 레벨, 3. 파티 정보(없음 or 파티 현재 인원), 4. 참가하기, 5. 초대하기)
+// 친구 목록 확인 (1. 상태(오프, 온라인 - 로비, 온라인 - 게임중), 2. 레벨, 3. 파티 정보(없음 or 파티 현재 인원))
+// => 파티 시스템 완료 후 파티 정보 추가하기
 
-// 유저 검색 (1. 상태, 2. 레벨, 3. 참가하기, 4. 초대하기)
-
+// 유저 검색 (1. 상태, 2. 레벨) => 완료
 
 
 // ====================== Party =======================
@@ -505,4 +618,4 @@ void RedisManager::SendFriendAcceptToUser(uint32_t targetPk_, uint32_t friendPk_
 
 // 코스튬 변경 (파티 없으면 그냥 변경만, 파티 있으면 나머지 파티원한테도 펍섭으로 전달)
 
-// 인벤토리 확인
+// 인벤토리 확인 => 완료
