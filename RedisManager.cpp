@@ -119,43 +119,162 @@ bool RedisManager::VerifyUserToken(const std::string& userId_, const char* token
     }
 }
 
+// 받은 친구 요청 수락/거절 처리 함수
 void RedisManager::ProcessFriendAccept(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_) {
     auto reqPacket = reinterpret_cast<FRIEND_ACTION_REQUEST*>(pPacket_);
 
     FRIEND_ACTION_RESPONSE res;
     res.PacketId = (uint16_t)PACKET_ID::FRIEND_ACTION_RESPONSE;
     res.PacketLength = sizeof(FRIEND_ACTION_RESPONSE);
-    strncpy_s(res.targetId, sizeof(res.targetId),reqPacket->targetId, _TRUNCATE);
+    strncpy_s(res.targetId, sizeof(res.targetId), reqPacket->targetId, _TRUNCATE);
 
-    // 내 pk 가져오기
-    uint32_t myPk = connUsersManager->FindUser(connObjNum_)->GetPk();
+    auto me = connUsersManager->FindUser(connObjNum_);
+    uint32_t myPk = me->GetPk();
+    std::string myId = me->GetId();
 
-    // DB UPDATE + targetPk 반환
-    auto targetPk = MySQLManager::GetInstance().AcceptFriend(myPk, std::string(reqPacket->targetId));
+    if (reqPacket->action == 0) { // 친구 요청 수락
+        auto targetPk = MySQLManager::GetInstance().AcceptFriend(myPk, std::string(reqPacket->targetId));
+        if (!targetPk.has_value()) {
+            res.isSuccess = false;
+            me->PushSendMsg(sizeof(res), (char*)&res);
+            return;
+        }
 
-    if (!targetPk.has_value()) {
+        // 내 세션 캐시에 친구 추가
+        me->AddFriend(*targetPk);
+
+        // 상대에게 수락 알림 pub/sub
+        // {"type":6,"data":{"targetPk":13,"senderPk":5}}
+        std::string message =
+            R"({"type":6,"data":{"targetPk":)"
+            + std::to_string(*targetPk)
+            + R"(,"senderPk":)" + std::to_string(myPk)
+            + R"(}})";
+
+        PublishToUsers({ *targetPk }, message);
+    }
+    else { // 친구 요청 거절/삭제
+        auto targetPk = MySQLManager::GetInstance()
+            .RemoveFriend(myPk, std::string(reqPacket->targetId));
+        if (!targetPk.has_value()) {
+            res.isSuccess = false;
+            me->PushSendMsg(sizeof(res), (char*)&res);
+            return;
+        }
+
+        // 내 세션 캐시에서 친구 제거
+        me->RemoveFriend(*targetPk);
+
+        // 상대에게 삭제/거절 알림 pub/sub
+        // {"type":7,"data":{"targetPk":13,"senderPk":5}}
+        std::string message =
+            R"({"type":7,"data":{"targetPk":)"
+            + std::to_string(*targetPk)
+            + R"(,"senderPk":)" + std::to_string(myPk)
+            + R"(}})";
+
+        PublishToUsers({ *targetPk }, message);
+    }
+
+    res.isSuccess = true;
+    me->PushSendMsg(sizeof(res), (char*)&res);
+}
+
+void RedisManager::ProcessUserSearch(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_) {
+    auto reqPacket = reinterpret_cast<USER_SEARCH_REQUEST*>(pPacket_);
+
+    USER_SEARCH_RESPONSE res;
+    res.PacketId = (uint16_t)PACKET_ID::USER_SEARCH_RESPONSE;
+    res.PacketLength = sizeof(USER_SEARCH_RESPONSE);
+
+    // 본인 검색 막기
+    if (std::string(reqPacket->userId) ==connUsersManager->FindUser(connObjNum_)->GetId()) {
         res.isSuccess = false;
         connUsersManager->FindUser(connObjNum_)->PushSendMsg(sizeof(res), (char*)&res);
         return;
     }
 
-    res.isSuccess = true;
+    // 1. DB에서 유저 찾기
+    auto result = MySQLManager::GetInstance().SearchUser(std::string(reqPacket->userId));
 
-    // Redis에서 상대 온라인 확인
-    std::string userKey = "user:" + std::to_string(*targetPk);
-    auto state = redis->hget(userKey, "state");
-
-    if (state.has_value()) {
-        // 온라인은 pub/sub로 수락 알림
-        // B의 친구목록에 A 추가되도록
-        std::string myId = connUsersManager->FindUser(connObjNum_)->GetId();
-        std::string message =
-            R"({"type":6,"data":{"userId":")"
-            + myId 
-            + R"("}})";
+    if (!result.has_value()) { // 매칭되는 유저 없음
+        res.isSuccess = false;
+        connUsersManager->FindUser(connObjNum_)->PushSendMsg(sizeof(res), (char*)&res);
+        return;
     }
 
+    // 2. Redis에서 온라인 상태 조회
+    try {
+        std::string userKey = "user:" + std::to_string(result->userPk);
+        auto state = redis->hget(userKey, "state");
+
+        if (!state.has_value()) {
+            res.onlineStatus = 0;  // 오프라인
+        }
+        else if (*state == "lobby") {
+            res.onlineStatus = 1;
+        }
+        else if (*state == "ingame") {
+            res.onlineStatus = 2;
+        }
+        else {
+            res.onlineStatus = 0;
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[ProcessUserSearch] Redis error: " << e.what() << '\n';
+        res.onlineStatus = 0;  // 에러 시 오프라인으로 전송하자
+    }
+
+    // 3. 결과 전송
+    strncpy_s(res.userId, sizeof(res.userId),result->userId, _TRUNCATE);
+    res.userLevel = result->userLevel;
+    res.isSuccess = true;
     connUsersManager->FindUser(connObjNum_)->PushSendMsg(sizeof(res), (char*)&res);
+}
+
+void RedisManager::ProcessFriendRequest(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_) {
+    auto reqPacket = reinterpret_cast<FRIEND_REQUEST_REQUEST*>(pPacket_);
+
+    FRIEND_REQUEST_RESPONSE res;
+    res.PacketId = (uint16_t)PACKET_ID::FRIEND_REQUEST_RESPONSE;
+    res.PacketLength = sizeof(FRIEND_REQUEST_RESPONSE);
+    strncpy_s(res.targetId, sizeof(res.targetId),reqPacket->targetId, _TRUNCATE);
+
+    auto me = connUsersManager->FindUser(connObjNum_);
+    uint32_t myPk = me->GetPk();
+    uint16_t myLevel = me->GetLevel();
+
+    // 본인 검색 방지용
+    if (std::string(reqPacket->targetId) == me->GetId()) {
+        res.isSuccess = false;
+        me->PushSendMsg(sizeof(res), (char*)&res);
+        return;
+    }
+
+    auto targetPk = MySQLManager::GetInstance().SendFriendRequest(myPk, std::string(reqPacket->targetId));
+
+    if (!targetPk.has_value()) {
+        res.isSuccess = false;
+        me->PushSendMsg(sizeof(res), (char*)&res);
+        return;
+    }
+
+    // 세션 캐시에 추가 (친구 추가 받거나 요청한 사람 모두 해당 유저 상태 확인용)
+    me->AddFriend(*targetPk);
+
+    // pub/sub - A 정보를 메시지에 포함해서 B가 추가 조회 없이 바로 사용
+    std::string message =
+        R"({"type":8,"data":{"targetPk":)"
+        + std::to_string(*targetPk)
+        + R"(,"senderPk":)" + std::to_string(myPk)
+        + R"(,"senderLevel":)" + std::to_string(myLevel)
+        + R"(,"onlineStatus":1}})";  // 로비에 있으니까 항상 1
+
+    PublishToUsers({ *targetPk }, message);
+
+    res.isSuccess = true;
+    me->PushSendMsg(sizeof(res), (char*)&res);
 }
 
 void RedisManager::PublishToUsers(const std::vector<uint32_t>& targetPks_, const std::string& eventMessage_) {
@@ -265,7 +384,7 @@ void RedisManager::UserConnect(uint16_t connObjNum_, uint16_t packetSize_, char*
         return;
     }
     std::vector<uint32_t> friendsDB;
-    friendsDB = MySQLManager::GetInstance().GetUserFriendsPks(userPk).value();
+    friendsDB = tempFD.value();
 
     // 각 connUser 세션에 unordered_set으로 친구 pk 저장해두기
     tempUser->SetFriendPks(friendsDB);
@@ -309,10 +428,26 @@ void RedisManager::UserDisConnect(uint16_t connObjNum_) {
     connUsersManager->DelPkToObjNum(userPk);
 }
 
+void RedisManager::SendFriendRequestToUser(uint32_t targetPk_, uint32_t senderPk_, uint16_t senderLevel_, uint8_t onlineStatus_) {
+    FRIEND_REQUEST_NOTIFY notify;
+    notify.PacketId = (uint16_t)PACKET_ID::FRIEND_REQUEST_NOTIFY;
+    notify.PacketLength = sizeof(notify);
+
+    auto tempObjNum = connUsersManager->GetObjNumByPk(targetPk_); // 친구 접속 상태 받을 현재 서버에 있는 유저
+    auto temoUser = connUsersManager->FindUser(tempObjNum);
+
+    // B 세션 캐시에 A 추가
+    temoUser->AddFriend(senderPk_);
+
+    notify.senderPk = senderPk_;
+    notify.senderLevel = senderLevel_;
+    notify.onlineStatus = onlineStatus_;
+    temoUser->PushSendMsg(sizeof(notify), (char*)&notify);
+}
+
 // 펍섭으로 특정 유저 접속을 받고 해당 유저 친구들에게 온/오프 상태를 알리는 함수
 // targetPk_: 요청 받을 유저 pk, friendPk_: 요청 보낸 친구 pk
 void RedisManager::SendFriendStatusToUser(uint32_t targetPk_, uint32_t friendPk_, uint16_t status_) {
-
     FRIEND_STATUS_NOTIFY friendNotifyPacket;
     friendNotifyPacket.PacketId = (uint16_t)PACKET_ID::FRIEND_STATUS_NOTIFY;
     friendNotifyPacket.PacketLength = sizeof(FRIEND_STATUS_NOTIFY);
@@ -323,10 +458,33 @@ void RedisManager::SendFriendStatusToUser(uint32_t targetPk_, uint32_t friendPk_
     connUsersManager->FindUser(tempObjNum)->PushSendMsg(sizeof(friendNotifyPacket), (char*)&friendNotifyPacket);
 }
 
+void RedisManager::SendFriendAcceptToUser(uint32_t targetPk_, uint32_t friendPk_, uint16_t accept_) {
+    auto tempObjNum = connUsersManager->GetObjNumByPk(targetPk_); // 친구 요청 상태 받을 현재 서버에 있는 유저 
+    if (!tempObjNum) return;  // 이 서버에 없는 유저
+
+    auto tempConnUser = connUsersManager->FindUser(tempObjNum);
+
+    // 세션 캐시 갱신
+    if (accept_ == 0) { // 수락/친구 추가
+
+    }
+    else { // 거절/친구 제거
+        tempConnUser->RemoveFriend(friendPk_);
+    }
+
+    FRIEND_ACCEPT_NOTIFY friendNotifyPacket;
+    friendNotifyPacket.PacketId = (uint16_t)PACKET_ID::FRIEND_ACCEPT_NOTIFY;
+    friendNotifyPacket.PacketLength = sizeof(friendNotifyPacket);
+    friendNotifyPacket.friendPk = friendPk_;
+    friendNotifyPacket.accept = accept_;
+
+    tempConnUser->PushSendMsg(sizeof(friendNotifyPacket), (char*)&friendNotifyPacket);
+}
+
 
 // ====================== Friend =======================
 
-// 친구 요청 삭제 or 받기
+// 친구 요청 삭제 or 받기 => 완료
 
 // 친구 목록 확인 (1. 상태(오프, 온라인 - 로비, 온라인 - 게임중), 2. 레벨, 3. 파티 정보(없음 or 파티 현재 인원), 4. 참가하기, 5. 초대하기)
 

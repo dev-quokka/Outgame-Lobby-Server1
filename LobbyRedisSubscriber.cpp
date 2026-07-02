@@ -114,8 +114,17 @@ void LobbyRedisSubscriber::HandleCostumeChange(const std::string& message) {
     uint32_t itemCode = ParseUintField(message, "itemCode");
 
     if (userPk == 0 || slot == 0 || itemCode == 0) return;
-
     std::cout << "[HandleCostumeChange] userPk: " << userPk << " slot: " << slot << " itemCode: " << itemCode << '\n';
+}
+
+void LobbyRedisSubscriber::HandleFriendRequest(const std::string& message) {
+    uint32_t targetPk = ParseUintField(message, "targetPk");
+    uint32_t senderPk = ParseUintField(message, "senderPk");
+    uint32_t senderLevel = ParseUintField(message, "senderLevel");
+    uint32_t onlineStatus = ParseUintField(message, "onlineStatus");
+
+    if (targetPk == 0 || senderPk == 0) return;
+    RedisManager::GetInstance().SendFriendRequestToUser(targetPk, senderPk, static_cast<uint16_t>(senderLevel), static_cast<uint8_t>(onlineStatus));
 }
 
 void LobbyRedisSubscriber::HandleFriendAccepted(const std::string& message) {
@@ -124,6 +133,7 @@ void LobbyRedisSubscriber::HandleFriendAccepted(const std::string& message) {
     uint32_t senderPk = ParseUintField(message, "senderPk");
     if (targetPk == 0 || senderPk == 0) return;
 
+    RedisManager::GetInstance().SendFriendAcceptToUser(targetPk, senderPk, 0);  // targetPk에게 senderPk의 친구 수락 메시지 전달
     std::cout << "[HandleFriendAccepted] targetPk: " << targetPk << " senderPk: " << senderPk << '\n';
 }
 
@@ -133,6 +143,7 @@ void LobbyRedisSubscriber::HandleFriendRemoved(const std::string& message) {
     uint32_t senderPk = ParseUintField(message, "senderPk");
     if (targetPk == 0 || senderPk == 0) return;
 
+    RedisManager::GetInstance().SendFriendAcceptToUser(targetPk, senderPk, 1);  // targetPk에게 senderPk의 친구 수락 메시지 전달
     std::cout << "[HandleFriendRemoved] targetPk: " << targetPk << " senderPk: " << senderPk << '\n';
 }
 

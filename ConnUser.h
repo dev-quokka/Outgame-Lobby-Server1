@@ -66,19 +66,35 @@ public:
 		userId = userId_;
 	}
 
-	std::string GetId() {
+	void SetLevel(uint16_t level) { 
+		userLevel_ = level; 
+	}
+	
+	void SetExp(uint32_t exp) { 
+		userExp_ = exp; 
+	}
+
+	uint16_t GetLevel() const { 
+		return userLevel_; 
+	}
+
+	uint32_t GetExp() const { 
+		return userExp_; 
+	}
+
+	std::string GetId() const {
 		return userId;
 	}
 
-	uint16_t GetObjNum() {
+	uint16_t GetObjNum() const {
 		return connObjNum;
 	}
 
-	uint32_t GetPk() {
+	uint32_t GetPk() const {
 		return userPk;
 	}
 
-	SOCKET GetSocket() {
+	SOCKET GetSocket() const {
 		return userSkt;
 	}
 
@@ -261,9 +277,11 @@ private:
 
 	// 4 bytes
 	uint32_t userPk;
+	uint32_t userExp_ = 0;
 
 	// 2 bytes
 	uint16_t connObjNum;
+	uint16_t userLevel_ = 0;
 
 	// 1 bytes
 	bool isConn = false;

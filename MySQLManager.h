@@ -15,9 +15,14 @@ public:
 	bool init();
 	void Shutdown();
 
+	std::optional<UserSessionInfo> GetUserSessionInfo(uint32_t userPk_);
 	std::optional<uint32_t> AcceptFriend(uint32_t userPk_, const std::string& targetId_);
 	std::optional<uint32_t> RemoveFriend(uint32_t userPk_, const std::string& targetId_);
 	std::optional<std::vector<uint32_t>> GetUserFriendsPks(uint32_t userPk_);
+	std::optional<UserSearchResult> SearchUser(const std::string& userId_);
+	std::optional<uint32_t> SendFriendRequest(uint32_t userPk_, const std::string& targetId_);
+
+
 
 	MySQLManager(const MySQLManager&) = delete;
 	MySQLManager& operator=(const MySQLManager&) = delete;

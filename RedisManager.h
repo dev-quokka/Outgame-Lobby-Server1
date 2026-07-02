@@ -38,6 +38,8 @@ public:
     // ====================== REDIS =======================
     bool VerifyUserToken(const std::string& userId_, const char* token_, uint32_t& outUserPk_);
     void PublishToUsers(const std::vector<uint32_t>& targetPks_, const std::string& message_);
+
+    void SendFriendRequestToUser(uint32_t targetPk_, uint32_t senderPk_, uint16_t senderLevel_, uint8_t onlineStatus_);
     void NotifyFriendOnline(uint32_t userPk_, const std::vector<uint32_t>& friendPks_);
     void NotifyFriendOffline(uint32_t userPk_);
 
@@ -47,8 +49,12 @@ public:
     void UserConnect(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
     void UserDisConnect(uint16_t connObjNum_);
 
+    void ProcessUserSearch(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+    void ProcessFriendRequest(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+
     void ProcessFriendAccept(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
     void SendFriendStatusToUser(uint32_t targetPk_, uint32_t friendPk_, uint16_t status_);
+    void SendFriendAcceptToUser(uint32_t targetPk_, uint32_t friendPk_, uint16_t status_);
 
 
 

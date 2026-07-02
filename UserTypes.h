@@ -14,6 +14,11 @@ struct Costume {
     uint32_t feet = 0;
 };
 
+struct UserSessionInfo {
+    uint16_t userLevel = 0;
+    uint32_t userExp = 0;
+};
+
 struct UserInfo {
     std::string userId;
     uint32_t exp = 0;
@@ -42,4 +47,11 @@ struct FriendInfoDB {
     uint32_t friendPk = 0;
     char     friendId[MAX_USER_ID_LEN] = {};
     uint8_t  friendStatus = 0;
+};
+
+// 친구 찾기용 구조체
+struct UserSearchResult {
+    char userId[MAX_USER_ID_LEN] = {};
+    uint32_t userPk = 0;
+    uint16_t userLevel = 0;
 };

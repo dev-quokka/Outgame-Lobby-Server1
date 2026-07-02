@@ -22,6 +22,7 @@ public:
     void HandleFriendOnline(const std::string& message);
     void HandleFriendOffline(const std::string& message);
     void HandleCostumeChange(const std::string& message);
+    void HandleFriendRequest(const std::string& message);
     void HandleFriendAccepted(const std::string& message);
     void HandleFriendRemoved(const std::string& message);
 

@@ -46,7 +46,72 @@ void MySQLManager::Shutdown() {
         mysql_close(conn);
     }
 }
+\
+std::optional<UserSessionInfo> MySQLManager::GetUserSessionInfo(uint32_t userPk_) {
+    semaphore.acquire();
 
+    MYSQL* ConnPtr = GetConnection();
+    if (!ConnPtr) {
+        std::cerr << "[GetUserSessionInfo] dbPool is empty.\n";
+        return std::nullopt;
+    }
+
+    auto tempAutoConn = AutoConn(ConnPtr, dbPool, dbPoolMutex, semaphore);
+
+    try {
+        MYSQL_STMT* stmt = mysql_stmt_init(ConnPtr);
+        std::string query =
+            "SELECT user_level, user_exp "
+            "FROM user WHERE user_pk = ?";
+
+        if (mysql_stmt_prepare(stmt, query.c_str(), query.length()) != 0) {
+            std::cerr << "[GetUserSessionInfo] Prepare Error: " << mysql_stmt_error(stmt) << '\n';
+            mysql_stmt_close(stmt);
+            return std::nullopt;
+        }
+
+        MYSQL_BIND param[1];
+        memset(param, 0, sizeof(param));
+        param[0].buffer_type = MYSQL_TYPE_LONG;
+        param[0].buffer = &userPk_;
+        param[0].is_unsigned = true;
+        mysql_stmt_bind_param(stmt, param);
+
+        if (mysql_stmt_execute(stmt) != 0) {
+            std::cerr << "[GetUserSessionInfo] Execute Error: " << mysql_stmt_error(stmt) << '\n';
+            mysql_stmt_close(stmt);
+            return std::nullopt;
+        }
+
+        UserSessionInfo info;
+        MYSQL_BIND result[2];
+        memset(result, 0, sizeof(result));
+
+        result[0].buffer_type = MYSQL_TYPE_SHORT;
+        result[0].buffer = &info.userLevel;
+        result[0].is_unsigned = true;
+
+        result[1].buffer_type = MYSQL_TYPE_LONG;
+        result[1].buffer = &info.userExp;
+        result[1].is_unsigned = true;
+
+        mysql_stmt_bind_result(stmt, result);
+        mysql_stmt_store_result(stmt);
+
+        if (mysql_stmt_fetch(stmt) != 0) {
+            std::cerr << "[GetUserSessionInfo] User not found. userPk: " << userPk_ << '\n';
+            mysql_stmt_close(stmt);
+            return std::nullopt;
+        }
+
+        mysql_stmt_close(stmt);
+        return info;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[GetUserSessionInfo] Exception: " << e.what() << '\n';
+        return std::nullopt;
+    }
+}
 
 std::optional<uint32_t> MySQLManager::AcceptFriend(uint32_t userPk_, const std::string& targetId_) {
     semaphore.acquire();
@@ -364,6 +429,233 @@ std::optional<std::vector<uint32_t>> MySQLManager::GetUserFriendsPks(uint32_t us
     }
     catch (const std::exception& e) {
         std::cerr << "[GetUserFriendsPks] Exception: " << e.what() << '\n';
+        return std::nullopt;
+    }
+}
+
+std::optional<UserSearchResult> MySQLManager::SearchUser(const std::string& userId_) {
+    semaphore.acquire();
+
+    MYSQL* ConnPtr = GetConnection();
+    if (!ConnPtr) {
+        std::cerr << "[SearchUser] dbPool is empty.\n";
+        return std::nullopt;
+    }
+    auto tempAutoConn = AutoConn(ConnPtr, dbPool, dbPoolMutex, semaphore);
+
+    try {
+        MYSQL_STMT* stmt = mysql_stmt_init(ConnPtr);
+        std::string query =
+            "SELECT user_pk, user_id, user_level "
+            "FROM user WHERE user_id = ?";
+
+        if (mysql_stmt_prepare(stmt, query.c_str(), query.length()) != 0) {
+            std::cerr << "[SearchUser] Prepare Error: " << mysql_stmt_error(stmt) << '\n';
+            mysql_stmt_close(stmt);
+            return std::nullopt;
+        }
+
+        MYSQL_BIND param[1];
+        memset(param, 0, sizeof(param));
+        unsigned long idLen = userId_.length();
+        param[0].buffer_type = MYSQL_TYPE_STRING;
+        param[0].buffer = (void*)userId_.c_str();
+        param[0].buffer_length = userId_.length();
+        param[0].length = &idLen;
+        mysql_stmt_bind_param(stmt, param);
+
+        if (mysql_stmt_execute(stmt) != 0) {
+            std::cerr << "[SearchUser] Execute Error: "
+                << mysql_stmt_error(stmt) << '\n';
+            mysql_stmt_close(stmt);
+            return std::nullopt;
+        }
+
+        UserSearchResult result;
+        char     userId[MAX_USER_ID_LEN] = {};
+        uint16_t userLevel = 0;
+        unsigned long userIdLen = 0;
+
+        MYSQL_BIND res[3];
+        memset(res, 0, sizeof(res));
+
+        res[0].buffer_type = MYSQL_TYPE_LONG;
+        res[0].buffer = &result.userPk;
+        res[0].is_unsigned = true;
+
+        res[1].buffer_type = MYSQL_TYPE_STRING;
+        res[1].buffer = userId;
+        res[1].buffer_length = sizeof(userId);
+        res[1].length = &userIdLen;
+
+        res[2].buffer_type = MYSQL_TYPE_SHORT;
+        res[2].buffer = &userLevel;
+        res[2].is_unsigned = true;
+
+        mysql_stmt_bind_result(stmt, res);
+        mysql_stmt_store_result(stmt);
+
+        if (mysql_stmt_fetch(stmt) != 0) { // 유저 없음
+            mysql_stmt_close(stmt);
+            return std::nullopt;
+        }
+
+        strncpy_s(result.userId, sizeof(result.userId),
+            userId, userIdLen);
+        result.userLevel = userLevel;
+
+        mysql_stmt_close(stmt);
+        return result;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[SearchUser] Exception: " << e.what() << '\n';
+        return std::nullopt;
+    }
+}
+
+std::optional<uint32_t> MySQLManager::SendFriendRequest(uint32_t userPk_, const std::string& targetId_) {
+    semaphore.acquire();
+
+    MYSQL* ConnPtr = GetConnection();
+    if (!ConnPtr) {
+        return std::nullopt;
+    }
+    auto tempAutoConn = AutoConn(ConnPtr, dbPool, dbPoolMutex, semaphore);
+
+    try {
+        if (mysql_query(ConnPtr, "START TRANSACTION") != 0) {
+            return std::nullopt;
+        }
+
+        // 1. targetId로 targetPk 조회
+        uint32_t targetPk = 0;
+        MYSQL_STMT* stmtSelect = mysql_stmt_init(ConnPtr);
+        std::string selectQuery =
+            "SELECT user_pk FROM user WHERE user_id = ?";
+
+        if (mysql_stmt_prepare(stmtSelect,
+            selectQuery.c_str(), selectQuery.length()) != 0) {
+            mysql_query(ConnPtr, "ROLLBACK");
+            mysql_stmt_close(stmtSelect);
+            return std::nullopt;
+        }
+
+        MYSQL_BIND selectParam[1];
+        memset(selectParam, 0, sizeof(selectParam));
+        unsigned long idLen = targetId_.length();
+        selectParam[0].buffer_type = MYSQL_TYPE_STRING;
+        selectParam[0].buffer = (void*)targetId_.c_str();
+        selectParam[0].buffer_length = targetId_.length();
+        selectParam[0].length = &idLen;
+        mysql_stmt_bind_param(stmtSelect, selectParam);
+
+        MYSQL_BIND selectResult[1];
+        memset(selectResult, 0, sizeof(selectResult));
+        selectResult[0].buffer_type = MYSQL_TYPE_LONG;
+        selectResult[0].buffer = &targetPk;
+        selectResult[0].is_unsigned = true;
+        mysql_stmt_bind_result(stmtSelect, selectResult);
+        mysql_stmt_execute(stmtSelect);
+        mysql_stmt_store_result(stmtSelect);
+
+        if (mysql_stmt_fetch(stmtSelect) != 0) {
+            mysql_query(ConnPtr, "ROLLBACK");
+            mysql_stmt_close(stmtSelect);
+            return std::nullopt;
+        }
+        mysql_stmt_close(stmtSelect);
+
+        // 2. 이미 친구거나 요청중인지 확인
+        MYSQL_STMT* stmtCheck = mysql_stmt_init(ConnPtr);
+        std::string checkQuery =
+            "SELECT status FROM friend "
+            "WHERE user_pk = ? AND friend_pk = ?";
+
+        if (mysql_stmt_prepare(stmtCheck,
+            checkQuery.c_str(), checkQuery.length()) != 0) {
+            mysql_query(ConnPtr, "ROLLBACK");
+            mysql_stmt_close(stmtCheck);
+            return std::nullopt;
+        }
+
+        MYSQL_BIND checkParam[2];
+        memset(checkParam, 0, sizeof(checkParam));
+        checkParam[0].buffer_type = MYSQL_TYPE_LONG;
+        checkParam[0].buffer = &userPk_;
+        checkParam[0].is_unsigned = true;
+        checkParam[1].buffer_type = MYSQL_TYPE_LONG;
+        checkParam[1].buffer = &targetPk;
+        checkParam[1].is_unsigned = true;
+        mysql_stmt_bind_param(stmtCheck, checkParam);
+
+        uint8_t existStatus = 255;
+        MYSQL_BIND checkResult[1];
+        memset(checkResult, 0, sizeof(checkResult));
+        checkResult[0].buffer_type = MYSQL_TYPE_TINY;
+        checkResult[0].buffer = &existStatus;
+        checkResult[0].is_unsigned = true;
+        mysql_stmt_bind_result(stmtCheck, checkResult);
+        mysql_stmt_execute(stmtCheck);
+        mysql_stmt_store_result(stmtCheck);
+
+        if (mysql_stmt_fetch(stmtCheck) == 0) { // 이미 관계가 있음
+            mysql_query(ConnPtr, "ROLLBACK");
+            mysql_stmt_close(stmtCheck);
+            return std::nullopt;
+        }
+        mysql_stmt_close(stmtCheck);
+
+        // 3. 양방향 INSERT
+        // (A에서 B, status=0 내가 보낸 요청)
+        // (B에서 A, status=2 받은 요청)
+        MYSQL_STMT* stmtInsert = mysql_stmt_init(ConnPtr);
+        std::string insertQuery =
+            "INSERT INTO friend (user_pk, friend_pk, status) VALUES "
+            "(?, ?, 0), (?, ?, 2)";
+
+        if (mysql_stmt_prepare(stmtInsert,
+            insertQuery.c_str(), insertQuery.length()) != 0) {
+            mysql_query(ConnPtr, "ROLLBACK");
+            mysql_stmt_close(stmtInsert);
+            return std::nullopt;
+        }
+
+        MYSQL_BIND insertParam[4];
+        memset(insertParam, 0, sizeof(insertParam));
+
+        insertParam[0].buffer_type = MYSQL_TYPE_LONG;
+        insertParam[0].buffer = &userPk_;
+        insertParam[0].is_unsigned = true;
+
+        insertParam[1].buffer_type = MYSQL_TYPE_LONG;
+        insertParam[1].buffer = &targetPk;
+        insertParam[1].is_unsigned = true;
+
+        insertParam[2].buffer_type = MYSQL_TYPE_LONG;
+        insertParam[2].buffer = &targetPk;
+        insertParam[2].is_unsigned = true;
+
+        insertParam[3].buffer_type = MYSQL_TYPE_LONG;
+        insertParam[3].buffer = &userPk_;
+        insertParam[3].is_unsigned = true;
+
+        if (mysql_stmt_bind_param(stmtInsert, insertParam) != 0 ||
+            mysql_stmt_execute(stmtInsert) != 0) {
+            mysql_query(ConnPtr, "ROLLBACK");
+            mysql_stmt_close(stmtInsert);
+            return std::nullopt;
+        }
+
+        mysql_stmt_close(stmtInsert);
+        mysql_query(ConnPtr, "COMMIT");
+
+        std::cout << "[SendFriendRequest] Success. userPk: " 
+            << userPk_ << " targetPk: " << targetPk << '\n';
+        return targetPk;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[SendFriendRequest] Exception: " << e.what() << '\n';
+        mysql_query(ConnPtr, "ROLLBACK");
         return std::nullopt;
     }
 }
