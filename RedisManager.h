@@ -39,7 +39,7 @@ public:
     bool VerifyUserToken(const std::string& userId_, const char* token_, uint32_t& outUserPk_);
     void PublishToUsers(const std::vector<uint32_t>& targetPks_, const std::string& message_);
 
-    void SendFriendRequestToUser(uint32_t targetPk_, uint32_t senderPk_, uint16_t senderLevel_, uint8_t onlineStatus_);
+    void SendFriendRequestToUser(uint32_t targetPk_, uint32_t senderPk_, const std::string& senderId_, uint16_t senderLevel_, uint8_t onlineStatus_);
     void NotifyFriendOnline(uint32_t userPk_, const std::vector<uint32_t>& friendPks_);
     void NotifyFriendOffline(uint32_t userPk_);
 

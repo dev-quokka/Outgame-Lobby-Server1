@@ -244,6 +244,7 @@ void RedisManager::ProcessFriendRequest(uint16_t connObjNum_, uint16_t packetSiz
     auto me = connUsersManager->FindUser(connObjNum_);
     uint32_t myPk = me->GetPk();
     uint16_t myLevel = me->GetLevel();
+    std::string myId = me->GetId();
 
     // 본인 검색 방지용
     if (std::string(reqPacket->targetId) == me->GetId()) {
@@ -253,7 +254,6 @@ void RedisManager::ProcessFriendRequest(uint16_t connObjNum_, uint16_t packetSiz
     }
 
     auto targetPk = MySQLManager::GetInstance().SendFriendRequest(myPk, std::string(reqPacket->targetId));
-
     if (!targetPk.has_value()) {
         res.isSuccess = false;
         me->PushSendMsg(sizeof(res), (char*)&res);
@@ -268,8 +268,9 @@ void RedisManager::ProcessFriendRequest(uint16_t connObjNum_, uint16_t packetSiz
         R"({"type":8,"data":{"targetPk":)"
         + std::to_string(*targetPk)
         + R"(,"senderPk":)" + std::to_string(myPk)
+        + R"(,"senderId":")" + myId + R"(")" 
         + R"(,"senderLevel":)" + std::to_string(myLevel)
-        + R"(,"onlineStatus":1}})";  // 로비에 있으니까 항상 1
+        + R"(,"onlineStatus":1}})"; // 로비에 있으니까 항상 1
 
     PublishToUsers({ *targetPk }, message);
 
@@ -428,7 +429,7 @@ void RedisManager::UserDisConnect(uint16_t connObjNum_) {
     connUsersManager->DelPkToObjNum(userPk);
 }
 
-void RedisManager::SendFriendRequestToUser(uint32_t targetPk_, uint32_t senderPk_, uint16_t senderLevel_, uint8_t onlineStatus_) {
+void RedisManager::SendFriendRequestToUser(uint32_t targetPk_, uint32_t senderPk_, const std::string& senderId_, uint16_t senderLevel_, uint8_t onlineStatus_) {
     FRIEND_REQUEST_NOTIFY notify;
     notify.PacketId = (uint16_t)PACKET_ID::FRIEND_REQUEST_NOTIFY;
     notify.PacketLength = sizeof(notify);
@@ -436,10 +437,10 @@ void RedisManager::SendFriendRequestToUser(uint32_t targetPk_, uint32_t senderPk
     auto tempObjNum = connUsersManager->GetObjNumByPk(targetPk_); // 친구 접속 상태 받을 현재 서버에 있는 유저
     auto temoUser = connUsersManager->FindUser(tempObjNum);
 
-    // B 세션 캐시에 A 추가
     temoUser->AddFriend(senderPk_);
 
     notify.senderPk = senderPk_;
+    strncpy_s(notify.senderId, sizeof(notify.senderId), senderId_.c_str(), _TRUNCATE);
     notify.senderLevel = senderLevel_;
     notify.onlineStatus = onlineStatus_;
     temoUser->PushSendMsg(sizeof(notify), (char*)&notify);
