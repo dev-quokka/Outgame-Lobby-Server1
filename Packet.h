@@ -141,6 +141,82 @@ struct COSTUME_CHANGE_NOTIFY : PACKET_HEADER {
 
 
 
+// ************* PARTY *************
+
+// 유저 따라가기 (따라갈 유저가 피티장이되며 자동 파티 생성)
+struct PARTY_FOLLOW_REQUEST : PACKET_HEADER {
+	char targetId[MAX_USER_ID_LEN] = {};  // 따라갈 유저 ID
+};
+
+struct PARTY_FOLLOW_RESPONSE : PACKET_HEADER {
+	uint32_t partyId = 0;
+	bool     isSuccess = false; // 따라가기 성공 OR 실패 여부 반환
+	uint8_t  failCode = 0; // 0=성공, 1=파티 꽉참, 2=유저 없음, 3=서버오류
+};
+
+
+// 친구 초대 (초대한 유저가 파티장이되며 자동 파티 생성)
+struct PARTY_INVITE_REQUEST : PACKET_HEADER {
+	char targetId[MAX_USER_ID_LEN] = {};  // 초대할 유저 ID
+};
+
+struct PARTY_INVITE_RESPONSE : PACKET_HEADER {
+	char    targetId[MAX_USER_ID_LEN] = {};
+	bool    isSuccess = false; // 초대한 유저가 초대 수락 OR 거부 반환
+	uint8_t failCode = 0; // 0=성공, 1=파티 꽉참, 2=유저 없음, 3=서버오류
+};
+
+
+// 초대 알림 (초대 받은 유저에게 알림)
+struct PARTY_INVITE_NOTIFY : PACKET_HEADER {
+	char     senderId[MAX_USER_ID_LEN] = {};  // 초대한 유저 ID
+	uint32_t partyId = 0;   // 0이면 파티 새로 생길 예정
+	uint8_t  memberCount = 0; // 현재 파티원 수
+};
+
+
+// 초대 수락/거절
+struct PARTY_INVITE_ACCEPT_REQUEST : PACKET_HEADER {
+	char    senderId[MAX_USER_ID_LEN] = {};  // 초대한 유저 ID
+	uint8_t accept = 0;  // 0=수락, 1=거절
+};
+
+struct PARTY_INVITE_ACCEPT_RESPONSE : PACKET_HEADER {
+	uint32_t partyId = 0;
+	bool     isSuccess = false;
+	uint8_t  failCode = 0;
+};
+
+
+// 새 멤버 입장 알림 (기존 파티원들에게)
+struct PARTY_JOIN_NOTIFY : PACKET_HEADER {
+	char     userId[MAX_USER_ID_LEN] = {};
+	uint32_t userPk = 0;
+	uint16_t userLevel = 0;
+	uint8_t  memberCount = 0;  // 갱신된 파티원 수
+};
+
+// 새로 들어오는 파티 유저에게 기존 파티 정보 전달
+struct PARTY_INFO_RESPONSE : PACKET_HEADER {
+	uint32_t partyId = 0;
+	uint32_t leaderPk = 0;
+	uint8_t  memberCount = 0;
+
+	struct PartyMember {
+		char     userId[MAX_USER_ID_LEN] = {};
+		uint32_t userPk = 0;
+		uint16_t userLevel = 0;
+		
+		// 코스튬
+		uint32_t head = 0;
+		uint32_t body = 0;
+		uint32_t legs = 0;
+		uint32_t feet = 0;
+	} members[4];
+};
+
+
+
 enum class PACKET_ID : uint16_t {
 
 	// ======================= CENTER SERVER (1~ ) =======================
@@ -154,6 +230,8 @@ enum class PACKET_ID : uint16_t {
 	USER_SEARCH_RESPONSE = 26,
 
 
+	// ************* FRIEND *************
+
 	FRIEND_REQUEST_REQUEST = 30,
 	FRIEND_REQUEST_RESPONSE = 31,
 	FRIEND_REQUEST_NOTIFY = 32,
@@ -164,10 +242,27 @@ enum class PACKET_ID : uint16_t {
 	FRIEND_ACTION_REQUEST = 35,
 	FRIEND_ACTION_RESPONSE = 36,
 
-
+	// ************* COSTUME *************
 
 	COSTUME_CHANGE_REQUEST = 51,
 	COSTUME_CHANGE_RESPONSE = 52,
 
 	COSTUME_CHANGE_NOTIFY = 55,
+
+
+	// ************* PARTY *************
+
+	PARTY_FOLLOW_REQUEST = 101,
+	PARTY_FOLLOW_RESPONSE = 102,
+
+	PARTY_INVITE_REQUEST = 105,
+	PARTY_INVITE_RESPONSE = 106,
+
+	PARTY_INVITE_NOTIFY = 110,
+
+	PARTY_INVITE_ACCEPT_REQUEST = 111,
+	PARTY_INVITE_ACCEPT_RESPONSE = 112,
+
+	PARTY_JOIN_NOTIFY = 114,
+	PARTY_INFO_PACKET = 115,
 };

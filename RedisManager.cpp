@@ -326,6 +326,111 @@ void RedisManager::ProcessCostumeChange(uint16_t connObjNum_, uint16_t packetSiz
     me->PushSendMsg(sizeof(res), (char*)&res);
 }
 
+void RedisManager::ProcessPartyFollow(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_) {
+    auto reqPacket = reinterpret_cast<PARTY_FOLLOW_REQUEST*>(pPacket_);
+
+    PARTY_FOLLOW_RESPONSE partyFollowRes;
+    partyFollowRes.PacketId = (uint16_t)PACKET_ID::PARTY_FOLLOW_RESPONSE;
+    partyFollowRes.PacketLength = sizeof(PARTY_FOLLOW_RESPONSE);
+
+    auto tempUser = connUsersManager->FindUser(connObjNum_);
+    uint32_t myPk = tempUser->GetPk();
+
+    // 이미 파티에 있으면 불가
+    if (tempUser->GetPartId() != 0) {
+        partyFollowRes.isSuccess = false;
+        partyFollowRes.failCode = (uint8_t)PartyFailCode::AlreadyInParty;
+        tempUser->PushSendMsg(sizeof(partyFollowRes), (char*)&partyFollowRes);
+        return;
+    }
+
+    try {
+        // B의 pk 조회 (Redis에서 userId에서 pk 매핑 없으니 DB 조회)
+        // 근데 친구라면 이미 friendPks에 있을 수 있음
+        // 일단 DB로 조회
+        auto targetInfo = MySQLManager::GetInstance().SearchUser(std::string(reqPacket->targetId));
+        if (!targetInfo.has_value()) {
+            partyFollowRes.isSuccess = false;
+            partyFollowRes.failCode = (uint8_t)PartyFailCode::UserNotFound;
+            tempUser->PushSendMsg(sizeof(partyFollowRes), (char*)&partyFollowRes);
+            return;
+        }
+        uint32_t targetPk = targetInfo->userPk;
+
+        // B의 partyId 확인
+        std::string targetUserKey = "user:" + std::to_string(targetPk);
+        auto targetPartyIdStr = redis->hget(targetUserKey, "partyId");
+
+        uint32_t partyId = 0;
+
+        if (!targetPartyIdStr.has_value() || *targetPartyIdStr == "0") {
+            // B 파티 없으면 새 파티 생성 (B가 파티장)
+            partyId = static_cast<uint32_t>(redis->incr("party:counter"));
+
+            std::string membersKey = "party:" + std::to_string(partyId) + ":members";
+            std::string leaderKey = "party:" + std::to_string(partyId) + ":leader";
+
+            // B를 파티장 + 첫 멤버로
+            redis->sadd(membersKey, std::to_string(targetPk));
+            redis->set(leaderKey, std::to_string(targetPk));
+            redis->hset(targetUserKey, "partyId", std::to_string(partyId));
+
+            // B 세션 partyId 갱신 (B가 이 서버에 있으면)
+            auto targetUser = connUsersManager->FindUser(connUsersManager->GetObjNumByPk(targetPk));
+            if (targetUser) targetUser->SetPartyId(partyId);
+        }
+        else {
+            // B 파티 있으면 기존 파티에 입장
+            partyId = std::stoul(*targetPartyIdStr);
+        }
+
+        // 파티 인원 확인 (최대 4명)
+        std::string membersKey = "party:" + std::to_string(partyId) + ":members";
+        auto memberCount = redis->scard(membersKey);
+        if (memberCount >= 4) {
+            partyFollowRes.isSuccess = false;
+            partyFollowRes.failCode = (uint8_t)PartyFailCode::PartyFull;
+            tempUser->PushSendMsg(sizeof(partyFollowRes), (char*)&partyFollowRes);
+            return;
+        }
+
+        std::string userKey = "user:" + std::to_string(myPk);
+
+        // A를 파티에 추가
+        redis->sadd(membersKey, std::to_string(myPk));
+        redis->hset(userKey, "partyId", std::to_string(partyId));
+        tempUser->SetPartyId(partyId);
+
+
+        // A에게 파티 전체 정보 전달
+
+
+        // 기존 파티원들에게 A 입장 알림
+
+
+        partyFollowRes.isSuccess = true;
+        partyFollowRes.partyId = partyId;
+        tempUser->PushSendMsg(sizeof(partyFollowRes), (char*)&partyFollowRes);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[ProcessPartyFollow] Error: " << e.what() << '\n';
+        partyFollowRes.isSuccess = false;
+        partyFollowRes.failCode = (uint8_t)PartyFailCode::ServerError;
+        tempUser->PushSendMsg(sizeof(partyFollowRes), (char*)&partyFollowRes);
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
 
 void RedisManager::NotifyFriendOnline(uint32_t userPk_, const std::vector<uint32_t>& friendPks_) {
     if (friendPks_.empty()) return;
@@ -414,22 +519,64 @@ void RedisManager::UserConnect(uint16_t connObjNum_, uint16_t packetSize_, char*
         tempUser->PushSendMsg(sizeof(userConnRes), (char*)&userConnRes);
         return;
     }
-    std::vector<uint32_t> friendsDB;
-    friendsDB = tempFD.value();
-
     // 각 connUser 세션에 unordered_set으로 친구 pk 저장해두기
-    tempUser->SetFriendPks(friendsDB);
+    tempUser->SetFriendPks(tempFD.value());
 
     // 친구들에게 접속 알림 (실패해도 로그인 유지)
-    NotifyFriendOnline(userPk, friendsDB);
+    NotifyFriendOnline(userPk, tempFD.value());
 
-    // PK,ID 세팅
+    // 레벨/경험치 조회 + 세션 캐싱
+    auto tempSessionInfo = MySQLManager::GetInstance().GetUserSessionInfo(userPk);
+    if (!tempSessionInfo.has_value()) {
+        std::cerr << "[UserConnect] GetUserSessionInfo failed. userPk: " << userPk << '\n';
+        userConnRes.isSuccess = false;
+        tempUser->PushSendMsg(sizeof(userConnRes), (char*)&userConnRes);
+        return;
+    }
+
+    // PK,ID, 레벨, 경험치, 파티Id 세팅
     tempUser->SetPk(userPk);
     tempUser->SetId(tempId);
+    tempUser->SetLevel(tempSessionInfo->userLevel);
+    tempUser->SetExp(tempSessionInfo->userExp);
+
+    // Redis에서 기존 파티 상태 확인
+    std::string userKey = "user:" + std::to_string(userPk);
+    uint32_t currentPartyId = 0;
+    try {
+        auto partyIdStr = redis->hget(userKey, "partyId");
+        if (partyIdStr.has_value() && *partyIdStr != "0") {
+            uint32_t tempPartyId = std::stoul(*partyIdStr);
+
+            // party:members에 내 pk 있는지 확인
+            std::string membersKey = "party:" + std::to_string(tempPartyId) + ":members";
+            bool isMember = redis->sismember(membersKey, std::to_string(userPk));
+
+            if (isMember) { // 파티 유지
+                currentPartyId = tempPartyId;
+                std::cout << "[UserConnect] partyId restored: " << currentPartyId << '\n';
+            }
+            else { // 파티 해제됐거나 강퇴됨
+                redis->hset(userKey, "partyId", "0");
+                std::cout << "[UserConnect] partyId cleared. userPk: " << userPk << '\n';
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[UserConnect] partyId check error: " << e.what() << '\n';
+    }
+    tempUser->SetPartyId(currentPartyId);
+
 
     // Redis 상태 갱신
     std::string userKey = "user:" + std::to_string(userPk);
-    redis->hset(userKey, "state", "lobby");
+    std::unordered_map<std::string, std::string> fields = {
+        {"state",   "lobby"},
+        {"partyId", std::to_string(currentPartyId)},
+        {"level",   std::to_string(tempSessionInfo->userLevel)},
+        {"exp",     std::to_string(tempSessionInfo->userExp)}
+    };
+    redis->hset(userKey, fields.begin(), fields.end());
     redis->expire(userKey, std::chrono::seconds(300));
 
     userConnRes.isSuccess = true;
@@ -533,8 +680,6 @@ void RedisManager::SendCostumeChangeToUser(uint32_t targetPk_, uint32_t userPk_,
     notify.itemCode = itemCode_;
     temoUser->PushSendMsg(sizeof(notify), (char*)&notify);
 }
-
-
 
 
 

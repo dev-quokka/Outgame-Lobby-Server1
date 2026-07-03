@@ -53,6 +53,7 @@ public:
     void ProcessFriendRequest(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
     void ProcessFriendAccept(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
     void ProcessCostumeChange(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+    void ProcessPartyFollow(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
 
 
     void SendFriendStatusToUser(uint32_t targetPk_, uint32_t friendPk_, uint16_t status_);
@@ -62,7 +63,6 @@ public:
 
 
     void PublishToUsers(const std::vector<uint32_t>& targetPks_, const std::string& message_);
-
 
 
     RedisManager(const RedisManager&) = delete;

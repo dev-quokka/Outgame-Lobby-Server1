@@ -65,20 +65,29 @@ public:
 		userId = userId_;
 	}
 
-	void SetLevel(uint16_t level) { 
-		userLevel_ = level; 
+	void SetLevel(uint16_t userLevel_) {
+		userLevel = userLevel_;
 	}
 	
-	void SetExp(uint32_t exp) { 
-		userExp_ = exp; 
+	void SetExp(uint32_t userExp_) {
+		userExp = userExp_;
+	}
+
+	void SetPartyId(uint16_t partyId_) {
+		partyId = partyId_;
+	}
+
+
+	uint16_t GetPartId() const {
+		return partyId;
 	}
 
 	uint16_t GetLevel() const { 
-		return userLevel_; 
+		return userLevel; 
 	}
 
 	uint32_t GetExp() const { 
-		return userExp_; 
+		return userExp; 
 	}
 
 	std::string GetId() const {
@@ -276,11 +285,12 @@ private:
 
 	// 4 bytes
 	uint32_t userPk;
-	uint32_t userExp_ = 0;
+	uint32_t userExp = 0;
 
 	// 2 bytes
 	uint16_t connObjNum;
-	uint16_t userLevel_ = 0;
+	uint16_t userLevel = 0;
+	uint16_t partyId = 0;
 
 	// 1 bytes
 	bool isConn = false;
