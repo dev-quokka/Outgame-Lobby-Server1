@@ -16,4 +16,8 @@ enum class PartyFailCode : uint8_t {
     PartyFull = 2,      // 파티 꽉참
     UserNotFound = 3,   // 유저 없음
     ServerError = 4, // 서버 에러
+    NotInParty = 5, // 현재 파티 없음 (잘못된 요청)
+
+
+    NotLeader = 11, // 파티 리더 아님
 };

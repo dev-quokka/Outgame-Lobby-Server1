@@ -21,10 +21,15 @@ public:
 
     void HandleFriendOnline(const std::string& message);
     void HandleFriendOffline(const std::string& message);
-    void HandleCostumeChange(const std::string& message);
     void HandleFriendRequest(const std::string& message);
     void HandleFriendAccepted(const std::string& message);
     void HandleFriendRemoved(const std::string& message);
+    void HandleCostumeChange(const std::string& message);
+    void HandlePartyJoin(const std::string& message);
+    void HandlePartyLeave(const std::string& message);
+    void HandlePartyInvite(const std::string& message);
+    void HandlePartyKick(const std::string& message);
+    void HandlePartyDelegate(const std::string& message);
 
     uint32_t ParseUintField(const std::string& message, const std::string& key);
     std::vector<uint32_t> ParseTargets(const std::string& message);
@@ -38,6 +43,9 @@ public:
         MatchStart = 5,
         FriendAccepted = 6,
         FriendRemoved = 7,
+        FriendRequest = 8,
+        PartyJoin = 10,
+        PartyLeave = 11,
     };
 
 private:

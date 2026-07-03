@@ -70,15 +70,26 @@ void LobbyRedisSubscriber::HandleLobbyEvent(const std::string& channel, const st
         case LobbyEventType::FriendOffline:
             HandleFriendOffline(message);
             break;
-        case LobbyEventType::CostumeChange:
-            HandleCostumeChange(message);
-            break;
         case LobbyEventType::FriendAccepted:
             HandleFriendAccepted(message);
             break;
         case LobbyEventType::FriendRemoved:
             HandleFriendRemoved(message);
             break;
+            
+        // 코스튬 관련
+        case LobbyEventType::CostumeChange:
+            HandleCostumeChange(message);
+            break;
+        
+        // 파티 관련
+        case LobbyEventType::PartyJoin:
+            HandlePartyJoin(message);
+            break;
+        case LobbyEventType::PartyLeave:
+            HandlePartyLeave(message);
+            break;
+
         default:
             std::cerr << "[HandleLobbyEvent] Unknown type: " << message << '\n';
             break;
@@ -175,12 +186,97 @@ void LobbyRedisSubscriber::HandleCostumeChange(const std::string& message) {
     }
 }
 
+void LobbyRedisSubscriber::HandlePartyJoin(const std::string& message) {
+    // {"type":10,"data":{"partyId":7,"userPk":13,"userId":"dongchan",
+    //  "userLevel":30,"head":1024,"body":2048,"legs":3072,"feet":4096,
+    //  "targets":[14,15]}}
+    uint32_t partyId = ParseUintField(message, "partyId");
+    uint32_t userPk = ParseUintField(message, "userPk");
+    std::string userId = ParseStringField(message, "userId");
+    uint32_t userLevel = ParseUintField(message, "userLevel");
+    uint32_t head = ParseUintField(message, "head");
+    uint32_t body = ParseUintField(message, "body");
+    uint32_t legs = ParseUintField(message, "legs");
+    uint32_t feet = ParseUintField(message, "feet");
+    if (partyId == 0 || userPk == 0) return;
 
+    auto targets = ParseTargets(message);
+    for (auto targetPk : targets) {
+        RedisManager::GetInstance().SendPartyJoinToUser(
+            targetPk, partyId, userPk, userId,
+            static_cast<uint16_t>(userLevel),
+            head, body, legs, feet);
+    }
+}
 
+void LobbyRedisSubscriber::HandlePartyLeave(const std::string& message) {
+    // {"type":11,"data":{"partyId":7,"userPk":13,"newLeaderPk":14,
+    //  "targets":[14,15]}}
+    uint32_t partyId = ParseUintField(message, "partyId");
+    uint32_t userPk = ParseUintField(message, "userPk");
+    uint32_t newLeaderPk = ParseUintField(message, "newLeaderPk");
+    if (partyId == 0 || userPk == 0) return;
 
+    auto targets = ParseTargets(message);
+    for (auto targetPk : targets) {
+        RedisManager::GetInstance().SendPartyLeaveToUser(targetPk, partyId, userPk, newLeaderPk);
+    }
+}
 
+void LobbyRedisSubscriber::HandlePartyInvite(const std::string& message) {
+    // reject=1이면 거절 처리
+    uint32_t reject = ParseUintField(message, "reject");
+    if (reject == 1) {
+        uint32_t targetPk = ParseUintField(message, "targetPk");
+        std::string senderId = ParseStringField(message, "senderId");
+        if (targetPk == 0) return;
 
+        auto targets = ParseTargets(message);
+        for (auto pk : targets) {
+            RedisManager::GetInstance().SendPartyInviteRejectToUser(
+                pk, senderId);
+        }
+        return;
+    }
+    
+    // 초대 알림 처리
+    // {"type":9,"data":{"targetPk":14,"senderPk":5,"senderId":"dongchan",
+    //  "senderLevel":30,"partyId":7,"memberCount":2,"targets":[14]}}
+    uint32_t targetPk = ParseUintField(message, "targetPk");
+    uint32_t senderPk = ParseUintField(message, "senderPk");
+    std::string senderId = ParseStringField(message, "senderId");
+    uint32_t senderLevel = ParseUintField(message, "senderLevel");
+    uint32_t partyId = ParseUintField(message, "partyId");
+    uint32_t memberCount = ParseUintField(message, "memberCount");
+    if (targetPk == 0 || senderPk == 0) return;
 
+    RedisManager::GetInstance().SendPartyInviteToUser(targetPk, senderPk, senderId, static_cast<uint16_t>(senderLevel), partyId, static_cast<uint8_t>(memberCount));
+}
+
+void LobbyRedisSubscriber::HandlePartyKick(const std::string& message) {
+    // {"type":12,"data":{"partyId":7,"userPk":13,"targets":[13,14,15]}}
+    uint32_t partyId = ParseUintField(message, "partyId");
+    uint32_t userPk = ParseUintField(message, "userPk");
+    if (partyId == 0 || userPk == 0) return;
+
+    auto targets = ParseTargets(message);
+    for (auto targetPk : targets) {
+        RedisManager::GetInstance().SendPartyKickToUser(
+            targetPk, partyId, userPk);
+    }
+}
+
+void LobbyRedisSubscriber::HandlePartyDelegate(const std::string& message) {
+    // {"type":13,"data":{"partyId":7,"newLeaderPk":14,"targets":[5,14,15]}}
+    uint32_t partyId = ParseUintField(message, "partyId");
+    uint32_t newLeaderPk = ParseUintField(message, "newLeaderPk");
+    if (partyId == 0 || newLeaderPk == 0) return;
+
+    auto targets = ParseTargets(message);
+    for (auto targetPk : targets) {
+        RedisManager::GetInstance().SendPartyDelegateToUser(targetPk, partyId, newLeaderPk);
+    }
+}
 
 
 

@@ -141,12 +141,14 @@
     <ClInclude Include="DBConfig.h" />
     <ClInclude Include="Define.h" />
     <ClInclude Include="FailCode.h" />
+    <ClInclude Include="JWTConfig.h" />
     <ClInclude Include="LobbyHeartbeat.h" />
     <ClInclude Include="LobbyRedisSubscriber.h" />
     <ClInclude Include="MySQLManager.h" />
     <ClInclude Include="OutGameLobbyServer.h" />
     <ClInclude Include="OverLappedManager.h" />
     <ClInclude Include="Packet.h" />
+    <ClInclude Include="RedisConFig.h" />
     <ClInclude Include="RedisManager.h" />
     <ClInclude Include="ServerChannelEnum.h" />
     <ClInclude Include="UserTypes.h" />

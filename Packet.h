@@ -11,6 +11,8 @@ constexpr uint16_t MAX_IP_LEN = 32;
 constexpr uint16_t MAX_SERVER_USERS = 128;
 constexpr uint16_t MAX_JWT_TOKEN_LEN = 257;
 
+constexpr uint16_t MAX_DATA_PACKET_SIZE = 256;
+
 struct DataPacket {
 	uint32_t dataSize;
 	uint16_t connObjNum;
@@ -169,9 +171,10 @@ struct PARTY_INVITE_RESPONSE : PACKET_HEADER {
 
 // 초대 알림 (초대 받은 유저에게 알림)
 struct PARTY_INVITE_NOTIFY : PACKET_HEADER {
-	char     senderId[MAX_USER_ID_LEN] = {};  // 초대한 유저 ID
-	uint32_t partyId = 0;   // 0이면 파티 새로 생길 예정
-	uint8_t  memberCount = 0; // 현재 파티원 수
+	char     senderId[MAX_USER_ID_LEN] = {};  
+	uint16_t senderLevel = 0;        
+	uint32_t partyId = 0;     
+	uint8_t  memberCount = 0;  
 };
 
 
@@ -187,6 +190,11 @@ struct PARTY_INVITE_ACCEPT_RESPONSE : PACKET_HEADER {
 	uint8_t  failCode = 0;
 };
 
+// 파티 초대 거절했다는 알림
+struct PARTY_INVITE_REJECT_NOTIFY : PACKET_HEADER {
+	char senderId[MAX_USER_ID_LEN] = {};  // 거절한 유저 ID
+};
+
 
 // 새 멤버 입장 알림 (기존 파티원들에게)
 struct PARTY_JOIN_NOTIFY : PACKET_HEADER {
@@ -197,7 +205,7 @@ struct PARTY_JOIN_NOTIFY : PACKET_HEADER {
 };
 
 // 새로 들어오는 파티 유저에게 기존 파티 정보 전달
-struct PARTY_INFO_RESPONSE : PACKET_HEADER {
+struct PARTY_INFO_PACKET : PACKET_HEADER {
 	uint32_t partyId = 0;
 	uint32_t leaderPk = 0;
 	uint8_t  memberCount = 0;
@@ -214,6 +222,71 @@ struct PARTY_INFO_RESPONSE : PACKET_HEADER {
 		uint32_t feet = 0;
 	} members[4];
 };
+
+
+struct PARTY_JOIN_NOTIFY : PACKET_HEADER {
+	char     userId[MAX_USER_ID_LEN] = {};
+	uint32_t userPk = 0;
+	uint32_t head = 0;
+	uint32_t body = 0;
+	uint32_t legs = 0;
+	uint32_t feet = 0;
+	uint16_t userLevel = 0;
+};
+
+
+struct PARTY_LEAVE_REQUEST : PACKET_HEADER {
+	// 별도 데이터 없음 (본인이 나가는 요청)
+};
+
+struct PARTY_LEAVE_RESPONSE : PACKET_HEADER {
+	bool    isSuccess = false;
+	uint8_t failCode = 0;
+};
+
+
+// 파티원들에게 알림
+struct PARTY_LEAVE_NOTIFY : PACKET_HEADER {
+	uint32_t userPk = 0;  // 나간 유저 pk
+	uint32_t newLeaderPk = 0;  // 새 파티장 pk (파티장이 나갔을 때만, 아니면 0)
+};
+
+
+// 파티 강퇴 요청 (파티장만 가능)
+struct PARTY_KICK_REQUEST : PACKET_HEADER {
+	char targetId[MAX_USER_ID_LEN] = {};  // 강퇴할 유저 ID
+};
+
+// 강퇴 결과
+struct PARTY_KICK_RESPONSE : PACKET_HEADER {
+	char    targetId[MAX_USER_ID_LEN] = {};
+	bool    isSuccess = false;
+	uint8_t failCode = 0;
+};
+
+// 강퇴된 유저를 파티원들에게 알림
+struct PARTY_KICK_NOTIFY : PACKET_HEADER {
+	uint32_t userPk = 0;  // 강퇴된 유저 pk
+};
+
+
+// 파티장 위임 요청
+struct PARTY_DELEGATE_REQUEST : PACKET_HEADER {
+	char targetId[MAX_USER_ID_LEN] = {};  // 새 파티장이 될 유저 ID
+};
+
+// 파티장 위임 결과
+struct PARTY_DELEGATE_RESPONSE : PACKET_HEADER {
+	char    targetId[MAX_USER_ID_LEN] = {};
+	bool    isSuccess = false;
+	uint8_t failCode = 0;
+};
+
+// 파티원들에게 새 파티장 알림
+struct PARTY_DELEGATE_NOTIFY : PACKET_HEADER {
+	uint32_t newLeaderPk = 0;  // 새 파티장 pk
+};
+
 
 
 
@@ -242,6 +315,7 @@ enum class PACKET_ID : uint16_t {
 	FRIEND_ACTION_REQUEST = 35,
 	FRIEND_ACTION_RESPONSE = 36,
 
+
 	// ************* COSTUME *************
 
 	COSTUME_CHANGE_REQUEST = 51,
@@ -262,7 +336,22 @@ enum class PACKET_ID : uint16_t {
 
 	PARTY_INVITE_ACCEPT_REQUEST = 111,
 	PARTY_INVITE_ACCEPT_RESPONSE = 112,
+	PARTY_INVITE_REJECT_NOTIFY = 113,
 
 	PARTY_JOIN_NOTIFY = 114,
 	PARTY_INFO_PACKET = 115,
+	PARTY_JOIN_NOTIFY = 116,
+
+	PARTY_LEAVE_REQUEST = 121,
+	PARTY_LEAVE_RESPONSE = 122,
+
+	PARTY_LEAVE_NOTIFY = 124,
+
+	PARTY_KICK_REQUEST = 131,
+	PARTY_KICK_RESPONSE = 132,
+	PARTY_KICK_NOTIFY = 134,
+
+	PARTY_DELEGATE_REQUEST = 141,
+	PARTY_DELEGATE_RESPONSE = 142,
+	PARTY_DELEGATE_NOTIFY = 143,
 };

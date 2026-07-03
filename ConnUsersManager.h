@@ -17,6 +17,7 @@ public:
     // ================== CONNECTION USER MANAGEMENT ==================
     void InsertUser(uint16_t connObjNum_, ConnUser* connUser_);
     ConnUser* FindUser(uint16_t connObjNum_);
+    ConnUser* FindUserByPk(uint32_t pk_);
 
     void SetPkToObjNum(uint32_t pk_, uint16_t connObjNum_);
     uint16_t GetObjNumByPk(uint32_t pk_);

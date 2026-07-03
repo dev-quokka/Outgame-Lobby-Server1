@@ -1,5 +1,8 @@
-#pragma once
+// 로비 서버의 Redis 통신 및 유저 상태 관리 담당 클래스
+// - JWT 검증, 세션 관리, 친구/파티/코스튬 이벤트 처리
+// - pub/sub 발행 및 수신 후 클라 패킷 전송
 
+#pragma once
 #include <jwt-cpp/jwt.h>
 #include <sw/redis++/redis++.h>
 #include <memory>
@@ -9,16 +12,12 @@
 #include <unordered_map>
 
 #include "Packet.h"
+#include "JWTConfig.h"
+#include "RedisConfig.h"
 #include "UserTypes.h"
 #include "ConnUsersManager.h"
 #include "MySQLManager.h"
 #include "ServerChannelEnum.h"
-
-constexpr const char* JWT_SECRET = "quokka_secret_key";
-constexpr int MAX_DATA_PACKET_SIZE = 256;
-
-constexpr const char* host = "127.0.0.1";
-constexpr int port = 6379;
 
 class RedisManager {
 public:
@@ -36,34 +35,91 @@ public:
 
 
     // ====================== REDIS =======================
-    bool VerifyUserToken(const std::string& userId_, const char* token_, uint32_t& outUserPk_);
-    
-    
-    void NotifyFriendOnline(uint32_t userPk_, const std::vector<uint32_t>& friendPks_);
-    void NotifyFriendOffline(uint32_t userPk_);
-    void NotifyCostumeChangeToParty(uint32_t userPk_, const std::string& userId_, uint32_t partyId_, uint8_t slot_, uint32_t itemCode_);
+    bool VerifyUserToken(const std::string& userId_, const char* token_, uint32_t& outUserPk_); // JWT 토큰 검증 + userPk 추출
+   
 
-
-    // ====================== UserState =======================
+    // ====================== 유저 상태 ======================
+    
+    // 로비 서버 접속 처리 (JWT 검증, 세션/Redis 세팅, 친구 온라인 알림)
     void UserConnect(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+    // 로비 서버 연결 종료 처리 (세션 정리, 친구 오프라인 알림)
     void UserDisConnect(uint16_t connObjNum_);
 
 
+
+    // ====================== 클라 요청 처리 ======================
+    // *********** 해당 서버에 접속한 유저의 요청 처리 ************
+
+    // 유저 ID로 유저 검색 + 온라인 상태 반환
     void ProcessUserSearch(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+    // 친구 요청 전송 (DB INSERT + 상대 온라인이면 pub/sub 알림)
     void ProcessFriendRequest(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+    // 친구 요청 수락/거절 (DB UPDATE or DELETE + pub/sub 알림)
     void ProcessFriendAccept(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+    // 코스튬 변경 (인벤 확인 + DB UPDATE + Redis 갱신 + 파티원 pub/sub 알림)
     void ProcessCostumeChange(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+    // 파티 따라가기 (대상 파티 없으면 생성, 있으면 입장)
     void ProcessPartyFollow(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+    // 파티 초대 전송 (상대 온라인이면 pub/sub 알림)
+    void ProcessPartyInvite(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+    // 파티 초대 수락/거절 처리
+    void ProcessPartyInviteAccept(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+    // 파티 탈퇴 (2명이면 해산, 3명 이상이면 유지 + 파티장이면 자동 위임)
+    void ProcessPartyLeave(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+    // 파티원 강퇴 (파티장만 가능)
+    void ProcessPartyKick(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+    // 파티장 위임 (파티장만 가능)
+    void ProcessPartyDelegate(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
 
 
+
+    // ====================== REDIS Pub/Sub 발행 ======================
+    // *********** 친구들이 있는 서버 채널로 이벤트 publish ***********
+
+    // 해당 유저 접속 시 친구들에게 온라인 알림
+    void NotifyFriendOnline(uint32_t userPk_, const std::vector<uint32_t>& friendPks_);
+    // 해당 유저 로그아웃 시 친구들에게 오프라인 알림 (DB 조회 후 publish)
+    void NotifyFriendOffline(uint32_t userPk_);
+    // 코스튬 변경 시 파티원들에게 변경 알림
+    void NotifyCostumeChangeToParty(uint32_t userPk_, const std::string& userId_, uint32_t partyId_, uint8_t slot_, uint32_t itemCode_);
+    // 새 파티원 입장 시 기존 파티원들에게 알림
+    void NotifyPartyJoin(uint32_t newUserPk_, uint32_t partyId_);
+    // 파티원 탈퇴 시 남은 파티원들에게 알림 (newLeaderPk=0이면 파티 해산)
+    void NotifyPartyLeave(uint32_t userPk_, uint32_t partyId_, uint32_t newLeaderPk_);
+    void NotifyPartyKick(uint32_t targetPk_, uint32_t partyId_);
+    void NotifyPartyDelegate(uint32_t newLeaderPk_, uint32_t partyId_);
+
+
+    // ====================== Pub/Sub 수신 후 타겟 유저에게 전달 ======================
+    // *** 다른 서버에서 publish된 메시지를 받아 이 서버의 타겟 유저에게 패킷 전송 ****
+
+    // 친구 온라인/오프라인 상태 변경 패킷 전송
     void SendFriendStatusToUser(uint32_t targetPk_, uint32_t friendPk_, uint16_t status_);
+    // 친구 요청 수락/거절 결과 패킷 전송
     void SendFriendAcceptToUser(uint32_t targetPk_, uint32_t friendPk_, uint16_t status_);
+    // 친구 요청 알림 패킷 전송 (요청자 정보 포함)
     void SendFriendRequestToUser(uint32_t targetPk_, uint32_t senderPk_, const std::string& senderId_, uint16_t senderLevel_, uint8_t onlineStatus_);
+    // 파티원 코스튬 변경 알림 패킷 전송
     void SendCostumeChangeToUser(uint32_t targetPk_, uint32_t userPk_, const std::string& userId_, uint8_t slot_, uint32_t itemCode_);
+    // 파티 전체 정보 패킷 전송 (파티 입장 시 사용)
+    void SendPartyInfo(uint16_t connObjNum_, uint32_t partyId_);
+    // 새 파티원 입장 알림 패킷 전송 (코스튬 정보 포함)
+    void SendPartyJoinToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t userPk_, const std::string& userId_, uint16_t userLevel_, uint32_t head_, uint32_t body_, uint32_t legs_, uint32_t feet_);
+    // 파티원 탈퇴 알림 패킷 전송 (newLeaderPk=0이면 파티 해산)
+    void SendPartyLeaveToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t userPk_, uint32_t newLeaderPk_);
+    // 파티 초대 알림 패킷 전송
+    void SendPartyInviteToUser(uint32_t targetPk_, uint32_t senderPk_, const std::string& senderId_, uint16_t senderLevel_, uint32_t partyId_, uint8_t memberCount_);
+    void SendPartyInviteRejectToUser(uint32_t targetPk_,const std::string& senderId_);
+    void SendPartyKickToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t kickedPk_);
+    void SendPartyDelegateToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t newLeaderPk_);
 
 
+    // ====================== 내부 헬퍼 ======================
+
+    // 타겟 pk 목록의 서버 위치 조회 후 서버별로 묶어 publish
     void PublishToUsers(const std::vector<uint32_t>& targetPks_, const std::string& message_);
-
+    void LeavePartyInternal(uint32_t userPk_, uint32_t partyId_);
+    bool IsPartyLeader(uint32_t userPk_, uint32_t partyId_);
 
     RedisManager(const RedisManager&) = delete;
     RedisManager& operator=(const RedisManager&) = delete;

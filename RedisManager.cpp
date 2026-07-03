@@ -119,6 +119,10 @@ bool RedisManager::VerifyUserToken(const std::string& userId_, const char* token
     }
 }
 
+
+
+// ============================================ 클라 요청 처리 ============================================
+
 // 받은 친구 요청 수락/거절 처리 함수
 void RedisManager::ProcessFriendAccept(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_) {
     auto reqPacket = reinterpret_cast<FRIEND_ACTION_REQUEST*>(pPacket_);
@@ -401,12 +405,11 @@ void RedisManager::ProcessPartyFollow(uint16_t connObjNum_, uint16_t packetSize_
         redis->hset(userKey, "partyId", std::to_string(partyId));
         tempUser->SetPartyId(partyId);
 
-
         // A에게 파티 전체 정보 전달
-
+        SendPartyInfo(connObjNum_, partyId);
 
         // 기존 파티원들에게 A 입장 알림
-
+        NotifyPartyJoin(myPk, partyId);
 
         partyFollowRes.isSuccess = true;
         partyFollowRes.partyId = partyId;
@@ -420,17 +423,435 @@ void RedisManager::ProcessPartyFollow(uint16_t connObjNum_, uint16_t packetSize_
     }
 }
 
+void RedisManager::ProcessPartyLeave(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_) {
+    PARTY_LEAVE_RESPONSE res;
+    res.PacketId = (uint16_t)PACKET_ID::PARTY_LEAVE_RESPONSE;
+    res.PacketLength = sizeof(PARTY_LEAVE_RESPONSE);
+
+    auto tempUser = connUsersManager->FindUser(connObjNum_);
+    uint32_t myPk = tempUser->GetPk();
+    uint32_t partyId = tempUser->GetPartId();
+
+    // 파티에 없으면 불가
+    if (partyId == 0) {
+        res.isSuccess = false;
+        res.failCode = (uint8_t)PartyFailCode::NotInParty;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+        return;
+    }
+
+    try {
+        std::string membersKey = "party:" + std::to_string(partyId) + ":members";
+        std::string leaderKey = "party:" + std::to_string(partyId) + ":leader";
+        std::string userKey = "user:" + std::to_string(myPk);
+
+        // members에서 A 제거
+        redis->srem(membersKey, std::to_string(myPk));
+
+        // 세션 + Redis partyId 초기화
+        tempUser->SetPartyId(0);
+        redis->hset(userKey, "partyId", "0");
+
+        // 남은 파티원 확인
+        auto remainCount = redis->scard(membersKey);
+
+        if (remainCount == 0) { // 파티 2명만 있었으면 파티 바로 해산
+            redis->del(membersKey);
+            redis->del(leaderKey);
+            std::cout << "[ProcessPartyLeave] Party disbanded. partyId: " << partyId << '\n';
+        }
+        else if (remainCount == 1) {  // 2명이었다가 1명 나간 경우 -> 남은 1명에게 알림 후 해산
+            // 알림 먼저 보내고
+            NotifyPartyLeave(myPk, partyId, 0);  // newLeaderPk=0 (해산이라)
+
+            // 남은 1명 세션 partyId 초기화
+            std::unordered_set<std::string> remainMembers;
+            redis->smembers(membersKey, std::inserter(remainMembers, remainMembers.begin()));
+            uint32_t lastPk = std::stoul(*remainMembers.begin());
+
+            auto lastUser = connUsersManager->FindUserByPk(lastPk);
+            if (lastUser) lastUser->SetPartyId(0);
+            redis->hset("user:" + std::to_string(lastPk), "partyId", "0");
+
+            // 파티 해산
+            redis->del(membersKey);
+            redis->del(leaderKey);
+            std::cout << "[ProcessPartyLeave] Party disbanded (2→1). partyId: " << partyId << '\n';
+        }
+        else { // 3명 이상 -> 파티 유지
+
+            // 파티장이었으면 자동 위임
+            uint32_t newLeaderPk = 0;
+            auto leaderPkStr = redis->get(leaderKey);
+            if (leaderPkStr.has_value() &&
+                std::stoul(*leaderPkStr) == myPk) {
+
+                std::unordered_set<std::string> remainMembers;
+                redis->smembers(membersKey, std::inserter(remainMembers, remainMembers.begin()));
+
+                newLeaderPk = std::stoul(*remainMembers.begin());
+                redis->set(leaderKey, std::to_string(newLeaderPk));
+                std::cout << "[ProcessPartyLeave] New leader: " << newLeaderPk << '\n';
+            }
+
+            // 남은 파티원들에게 탈퇴 알림
+            NotifyPartyLeave(myPk, partyId, newLeaderPk);
+        }
+
+        res.isSuccess = true;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+        std::cout << "[ProcessPartyLeave] userPk: " << myPk << " partyId: " << partyId << '\n';
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[ProcessPartyLeave] Error: " << e.what() << '\n';
+        res.isSuccess = false;
+        res.failCode = (uint8_t)PartyFailCode::ServerError;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+    }
+}
+
+void RedisManager::ProcessPartyInvite(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_) {
+
+    auto reqPacket = reinterpret_cast<PARTY_INVITE_REQUEST*>(pPacket_);
+
+    PARTY_INVITE_RESPONSE res;
+    res.PacketId = (uint16_t)PACKET_ID::PARTY_INVITE_RESPONSE;
+    res.PacketLength = sizeof(PARTY_INVITE_RESPONSE);
+    strncpy_s(res.targetId, sizeof(res.targetId),
+        reqPacket->targetId, _TRUNCATE);
+
+    auto tempUser = connUsersManager->FindUser(connObjNum_);
+    uint32_t myPk = tempUser->GetPk();
+    uint32_t partyId = tempUser->GetPartId();
+
+    // 파티 있으면 인원 확인하기
+    if (partyId != 0) {
+        std::string membersKey = "party:" + std::to_string(partyId) + ":members";
+        auto memberCount = redis->scard(membersKey);
+        if (memberCount >= 4) {
+            res.isSuccess = false;
+            res.failCode = (uint8_t)PartyFailCode::PartyFull;
+            tempUser->PushSendMsg(sizeof(res), (char*)&res);
+            return;
+        }
+    }
+
+    // B의 pk 조회
+    auto targetInfo = MySQLManager::GetInstance().SearchUser(std::string(reqPacket->targetId));
+    if (!targetInfo.has_value()) {
+        res.isSuccess = false;
+        res.failCode = (uint8_t)PartyFailCode::UserNotFound;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+        return;
+    }
+    uint32_t targetPk = targetInfo->userPk;
+
+    // B에게 초대 알림 pub/sub
+    uint8_t memberCount = 0;
+    if (partyId != 0) {
+        std::string membersKey = "party:" + std::to_string(partyId) + ":members";
+        memberCount = static_cast<uint8_t>(redis->scard(membersKey));
+    }
+
+    std::string message =
+        R"({"type":9,"data":{"targetPk":)"
+        + std::to_string(targetPk)
+        + R"(,"senderPk":)" + std::to_string(myPk)
+        + R"(,"senderId":")" + tempUser->GetId() + R"(")"
+        + R"(,"senderLevel":)" + std::to_string(tempUser->GetLevel())
+        + R"(,"partyId":)" + std::to_string(partyId)
+        + R"(,"memberCount":)" + std::to_string(memberCount)
+        + R"(}})";
+
+    PublishToUsers({ targetPk }, message);
+
+    res.isSuccess = true;
+    tempUser->PushSendMsg(sizeof(res), (char*)&res);
+
+    std::cout << "[ProcessPartyInvite] myPk: " << myPk << " targetPk: " << targetPk << '\n';
+}
+
+void RedisManager::ProcessPartyInviteAccept(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_) {
+    auto reqPacket = reinterpret_cast<PARTY_INVITE_ACCEPT_REQUEST*>(pPacket_);
+
+    PARTY_INVITE_ACCEPT_RESPONSE res;
+    res.PacketId = (uint16_t)PACKET_ID::PARTY_INVITE_ACCEPT_RESPONSE;
+    res.PacketLength = sizeof(PARTY_INVITE_ACCEPT_RESPONSE);
+
+    auto tempUser = connUsersManager->FindUser(connObjNum_);
+    uint32_t myPk = tempUser->GetPk();
+
+    // A의 pk 조회
+    auto senderInfo = MySQLManager::GetInstance().SearchUser(std::string(reqPacket->senderId));
+    if (!senderInfo.has_value()) {
+        res.isSuccess = false;
+        res.failCode = (uint8_t)PartyFailCode::UserNotFound;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+        return;
+    }
+    uint32_t senderPk = senderInfo->userPk;
+
+    if (reqPacket->accept == 1) {
+        // A에게 거절 알림 pub/sub
+        std::string message =
+            R"({"type":9,"data":{"targetPk":)"
+            + std::to_string(senderPk)
+            + R"(,"senderId":")" + tempUser->GetId() + R"(")"
+            + R"(,"reject":1}})";
+        PublishToUsers({ senderPk }, message);
+
+        res.isSuccess = true;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+        return;
+    }
+
+    // 수락 -> A의 현재 파티 확인
+    std::string senderUserKey = "user:" + std::to_string(senderPk);
+    auto senderPartyIdStr = redis->hget(senderUserKey, "partyId");
+
+    uint32_t partyId = 0;
+    std::string userKey = "user:" + std::to_string(myPk);
+
+    try {
+        // B가 기존 파티 있으면 먼저 탈퇴처리
+        if (tempUser->GetPartId() != 0) {
+            LeavePartyInternal(myPk, tempUser->GetPartId());
+        }
+
+        if (!senderPartyIdStr.has_value() || *senderPartyIdStr == "0") {
+            // A 파티 없음 -> 새 파티 생성 (A가 파티장)
+            partyId = static_cast<uint32_t>(redis->incr("party:counter"));
+
+            std::string membersKey = "party:" + std::to_string(partyId) + ":members";
+            std::string leaderKey = "party:" + std::to_string(partyId) + ":leader";
+
+            redis->sadd(membersKey, std::to_string(senderPk));
+            redis->set(leaderKey, std::to_string(senderPk));
+            redis->hset(senderUserKey, "partyId", std::to_string(partyId));
+
+            // A 세션 갱신
+            ConnUser* senderUser = connUsersManager->FindUserByPk(senderPk);
+            if (senderUser) senderUser->SetPartyId(partyId);
+        }
+        else {
+            partyId = std::stoul(*senderPartyIdStr);
+        }
+
+        // 인원 확인
+        std::string membersKey = "party:" + std::to_string(partyId) + ":members";
+        auto memberCount = redis->scard(membersKey);
+        if (memberCount >= 4) {
+            res.isSuccess = false;
+            res.failCode = (uint8_t)PartyFailCode::PartyFull;
+            tempUser->PushSendMsg(sizeof(res), (char*)&res);
+            return;
+        }
+
+        // B를 파티에 추가
+        redis->sadd(membersKey, std::to_string(myPk));
+        redis->hset(userKey, "partyId", std::to_string(partyId));
+        tempUser->SetPartyId(partyId);
+
+        // B에게 파티 전체 정보 전달
+        SendPartyInfo(connObjNum_, partyId);
+
+        // 기존 파티원들에게 B 입장 알림
+        NotifyPartyJoin(myPk, partyId);
+
+        res.isSuccess = true;
+        res.partyId = partyId;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[ProcessPartyInviteAccept] Error: " << e.what() << '\n';
+        res.isSuccess = false;
+        res.failCode = (uint8_t)PartyFailCode::ServerError;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+    }
+}
+
+void RedisManager::ProcessPartyLeave(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_) {
+
+    PARTY_LEAVE_RESPONSE res;
+    res.PacketId = (uint16_t)PACKET_ID::PARTY_LEAVE_RESPONSE;
+    res.PacketLength = sizeof(PARTY_LEAVE_RESPONSE);
+
+    auto tempUser = connUsersManager->FindUser(connObjNum_);
+    uint32_t myPk = tempUser->GetPk();
+    uint32_t partyId = tempUser->GetPartId();
+
+    if (partyId == 0) {
+        res.isSuccess = false;
+        res.failCode = (uint8_t)PartyFailCode::NotInParty;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+        return;
+    }
+
+    try {
+        LeavePartyInternal(myPk, partyId);
+        res.isSuccess = true;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[ProcessPartyLeave] Error: " << e.what() << '\n';
+        res.isSuccess = false;
+        res.failCode = (uint8_t)PartyFailCode::ServerError;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+    }
+}
+
+void RedisManager::ProcessPartyKick(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_) {
+
+    auto reqPacket = reinterpret_cast<PARTY_KICK_REQUEST*>(pPacket_);
+
+    PARTY_KICK_RESPONSE res;
+    res.PacketId = (uint16_t)PACKET_ID::PARTY_KICK_RESPONSE;
+    res.PacketLength = sizeof(PARTY_KICK_RESPONSE);
+    strncpy_s(res.targetId, sizeof(res.targetId),reqPacket->targetId, _TRUNCATE);
+
+    auto tempUser = connUsersManager->FindUser(connObjNum_);
+    uint32_t myPk = tempUser->GetPk();
+    uint32_t partyId = tempUser->GetPartId();
+
+    // 파티에 없으면 불가
+    if (partyId == 0) {
+        res.isSuccess = false;
+        res.failCode = (uint8_t)PartyFailCode::NotInParty;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+        return;
+    }
+
+    // 파티장인지 확인
+    if (!IsPartyLeader(myPk, partyId)) {
+        res.isSuccess = false;
+        res.failCode = (uint8_t)PartyFailCode::NotLeader;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+        return;
+    }
+
+    try {
+        // 강퇴 대상 pk 조회
+        auto targetInfo = MySQLManager::GetInstance().SearchUser(std::string(reqPacket->targetId));
+        if (!targetInfo.has_value()) {
+            res.isSuccess = false;
+            res.failCode = (uint8_t)PartyFailCode::UserNotFound;
+            tempUser->PushSendMsg(sizeof(res), (char*)&res);
+            return;
+        }
+        uint32_t targetPk = targetInfo->userPk;
+
+        // 대상이 이 파티 멤버인지 확인
+        std::string membersKey = "party:" + std::to_string(partyId) + ":members";
+        bool isMember = redis->sismember(membersKey, std::to_string(targetPk));
+        if (!isMember) {
+            res.isSuccess = false;
+            res.failCode = (uint8_t)PartyFailCode::NotInParty;
+            tempUser->PushSendMsg(sizeof(res), (char*)&res);
+            return;
+        }
+
+        // members에서 제거
+        redis->srem(membersKey, std::to_string(targetPk));
+
+        // B 세션 + Redis partyId 초기화
+        std::string targetUserKey = "user:" + std::to_string(targetPk);
+        redis->hset(targetUserKey, "partyId", "0");
+
+        ConnUser* targetUser = connUsersManager->FindUserByPk(targetPk);
+        if (targetUser) targetUser->SetPartyId(0);
+
+        // 강퇴된 B에게 알림 (같은 서버에 있으면 직접, 다른 서버면 pub/sub)
+        // B + 남은 파티원들 모두에게 알림
+        NotifyPartyKick(targetPk, partyId);
+
+        res.isSuccess = true;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+
+        std::cout << "[ProcessPartyKick] myPk: " << myPk
+            << " targetPk: " << targetPk
+            << " partyId: " << partyId << '\n';
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[ProcessPartyKick] Error: " << e.what() << '\n';
+        res.isSuccess = false;
+        res.failCode = (uint8_t)PartyFailCode::ServerError;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+    }
+}
+
+void RedisManager::ProcessPartyDelegate(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_) {
+    auto reqPacket = reinterpret_cast<PARTY_DELEGATE_REQUEST*>(pPacket_);
+
+    PARTY_DELEGATE_RESPONSE res;
+    res.PacketId = (uint16_t)PACKET_ID::PARTY_DELEGATE_RESPONSE;
+    res.PacketLength = sizeof(PARTY_DELEGATE_RESPONSE);
+    strncpy_s(res.targetId, sizeof(res.targetId), reqPacket->targetId, _TRUNCATE);
+
+    auto tempUser = connUsersManager->FindUser(connObjNum_);
+    uint32_t myPk = tempUser->GetPk();
+    uint32_t partyId = tempUser->GetPartId();
+
+    // 파티에 없으면 불가
+    if (partyId == 0) {
+        res.isSuccess = false;
+        res.failCode = (uint8_t)PartyFailCode::NotInParty;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+        return;
+    }
+
+    // 파티장인지 확인
+    if (!IsPartyLeader(myPk, partyId)) {
+        res.isSuccess = false;
+        res.failCode = (uint8_t)PartyFailCode::NotLeader;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+        return;
+    }
+
+    try {
+        // 새 파티장 pk 조회
+        auto targetInfo = MySQLManager::GetInstance().SearchUser(std::string(reqPacket->targetId));
+        if (!targetInfo.has_value()) {
+            res.isSuccess = false;
+            res.failCode = (uint8_t)PartyFailCode::UserNotFound;
+            tempUser->PushSendMsg(sizeof(res), (char*)&res);
+            return;
+        }
+        uint32_t targetPk = targetInfo->userPk;
+
+        // 대상이 이 파티 멤버인지 확인
+        std::string membersKey = "party:" + std::to_string(partyId) + ":members";
+        bool isMember = redis->sismember(membersKey, std::to_string(targetPk));
+        if (!isMember) {
+            res.isSuccess = false;
+            res.failCode = (uint8_t)PartyFailCode::NotInParty;
+            tempUser->PushSendMsg(sizeof(res), (char*)&res);
+            return;
+        }
+
+        // 파티장 갱신
+        std::string leaderKey = "party:" + std::to_string(partyId) + ":leader";
+        redis->set(leaderKey, std::to_string(targetPk));
+
+        // 파티원들에게 알림
+        NotifyPartyDelegate(targetPk, partyId);
+
+        res.isSuccess = true;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+
+        std::cout << "[ProcessPartyDelegate] myPk: " << myPk
+            << " newLeaderPk: " << targetPk
+            << " partyId: " << partyId << '\n';
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[ProcessPartyDelegate] Error: " << e.what() << '\n';
+        res.isSuccess = false;
+        res.failCode = (uint8_t)PartyFailCode::ServerError;
+        tempUser->PushSendMsg(sizeof(res), (char*)&res);
+    }
+}
 
 
-
-
-
-
-
-
-
-
-
+// ============================================ REDIS Pub/Sub 발행 ============================================
 
 void RedisManager::NotifyFriendOnline(uint32_t userPk_, const std::vector<uint32_t>& friendPks_) {
     if (friendPks_.empty()) return;
@@ -488,6 +909,136 @@ void RedisManager::NotifyCostumeChangeToParty(uint32_t userPk_, const std::strin
     }
     catch (const std::exception& e) {
         std::cerr << "[NotifyCostumeChangeToParty] Error: " << e.what() << '\n';
+    }
+}
+
+void RedisManager::NotifyPartyJoin(uint32_t newUserPk_, uint32_t partyId_) {
+    try {
+        std::string membersKey = "party:" + std::to_string(partyId_) + ":members";
+        std::unordered_set<std::string> memberPkStrs;
+        redis->smembers(membersKey, std::inserter(memberPkStrs, memberPkStrs.begin()));
+
+        // 새 멤버 본인 제외한 파티원들
+        std::vector<uint32_t> otherMembers;
+        for (const auto& s : memberPkStrs) {
+            uint32_t pk = std::stoul(s);
+            if (pk != newUserPk_) otherMembers.push_back(pk);
+        }
+        if (otherMembers.empty()) return;
+
+        // 새 멤버 정보
+        ConnUser* newUser = connUsersManager->FindUserByPk(newUserPk_);
+        if (!newUser) return;
+
+        // 새 멤버 코스튬 조회 (Redis에 캐싱돼있음)
+        std::string equipKey = "user:" + std::to_string(newUserPk_) + ":equip";
+        uint32_t head = 0, body = 0, legs = 0, feet = 0;
+        try {
+            std::unordered_map<std::string, std::string> equip;
+            redis->hgetall(equipKey, std::inserter(equip, equip.begin()));
+            if (equip.count("head")) head = std::stoul(equip["head"]);
+            if (equip.count("body")) body = std::stoul(equip["body"]);
+            if (equip.count("legs")) legs = std::stoul(equip["legs"]);
+            if (equip.count("feet")) feet = std::stoul(equip["feet"]);
+        }
+        catch (...) {}
+
+        std::string message =
+            R"({"type":10,"data":{"partyId":)"
+            + std::to_string(partyId_)
+            + R"(,"userPk":)" + std::to_string(newUserPk_)
+            + R"(,"userId":")" + newUser->GetId() + R"(")"
+            + R"(,"userLevel":)" + std::to_string(newUser->GetLevel())
+            + R"(,"head":)" + std::to_string(head)
+            + R"(,"body":)" + std::to_string(body)
+            + R"(,"legs":)" + std::to_string(legs)
+            + R"(,"feet":)" + std::to_string(feet)
+            + R"(}})";
+
+        PublishToUsers(otherMembers, message);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[NotifyPartyJoin] Error: " << e.what() << '\n';
+    }
+}
+
+void RedisManager::NotifyPartyLeave(uint32_t userPk_, uint32_t partyId_, uint32_t newLeaderPk_) {
+    try {
+        std::string membersKey = "party:" + std::to_string(partyId_) + ":members";
+        std::unordered_set<std::string> memberPkStrs;
+        redis->smembers(membersKey, std::inserter(memberPkStrs, memberPkStrs.begin()));
+
+        std::vector<uint32_t> remainMembers;
+        for (const auto& s : memberPkStrs) {
+            remainMembers.push_back(std::stoul(s));
+        }
+        if (remainMembers.empty()) return;
+
+        std::string message =
+            R"({"type":11,"data":{"partyId":)"
+            + std::to_string(partyId_)
+            + R"(,"userPk":)" + std::to_string(userPk_)
+            + R"(,"newLeaderPk":)" + std::to_string(newLeaderPk_)
+            + R"(}})";
+
+        PublishToUsers(remainMembers, message);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[NotifyPartyLeave] Error: " << e.what() << '\n';
+    }
+}
+
+void RedisManager::NotifyPartyKick(uint32_t targetPk_, uint32_t partyId_) {
+    try {
+        std::string membersKey = "party:" + std::to_string(partyId_) + ":members";
+        std::unordered_set<std::string> memberPkStrs;
+        redis->smembers(membersKey,
+            std::inserter(memberPkStrs, memberPkStrs.begin()));
+
+        // 남은 파티원 목록
+        std::vector<uint32_t> targets;
+        for (const auto& s : memberPkStrs) {
+            targets.push_back(std::stoul(s));
+        }
+        // 강퇴된 유저도 알림 받아야 함
+        targets.push_back(targetPk_);
+
+        std::string message =
+            R"({"type":12,"data":{"partyId":)"
+            + std::to_string(partyId_)
+            + R"(,"userPk":)" + std::to_string(targetPk_)
+            + R"(}})";
+
+        PublishToUsers(targets, message);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[NotifyPartyKick] Error: " << e.what() << '\n';
+    }
+}
+
+void RedisManager::NotifyPartyDelegate(uint32_t newLeaderPk_, uint32_t partyId_) {
+    try {
+        std::string membersKey = "party:" + std::to_string(partyId_) + ":members";
+        std::unordered_set<std::string> memberPkStrs;
+        redis->smembers(membersKey,
+            std::inserter(memberPkStrs, memberPkStrs.begin()));
+
+        std::vector<uint32_t> targets;
+        for (const auto& s : memberPkStrs) {
+            targets.push_back(std::stoul(s));
+        }
+        if (targets.empty()) return;
+
+        std::string message =
+            R"({"type":13,"data":{"partyId":)"
+            + std::to_string(partyId_)
+            + R"(,"newLeaderPk":)" + std::to_string(newLeaderPk_)
+            + R"(}})";
+
+        PublishToUsers(targets, message);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[NotifyPartyDelegate] Error: " << e.what() << '\n';
     }
 }
 
@@ -609,9 +1160,7 @@ void RedisManager::UserDisConnect(uint16_t connObjNum_) {
 
 
 
-
-
-
+// ============================================ Pub/Sub 수신 후 타겟 유저에게 전달 ============================================
 
 void RedisManager::SendFriendRequestToUser(uint32_t targetPk_, uint32_t senderPk_, const std::string& senderId_, uint16_t senderLevel_, uint8_t onlineStatus_) {
     FRIEND_REQUEST_NOTIFY notify;
@@ -681,10 +1230,169 @@ void RedisManager::SendCostumeChangeToUser(uint32_t targetPk_, uint32_t userPk_,
     temoUser->PushSendMsg(sizeof(notify), (char*)&notify);
 }
 
+void RedisManager::SendPartyInfo(uint16_t connObjNum_, uint32_t partyId_) {
+    try {
+        std::string membersKey = "party:" + std::to_string(partyId_) + ":members";
+        std::string leaderKey = "party:" + std::to_string(partyId_) + ":leader";
+
+        // 파티원 pk 목록
+        std::unordered_set<std::string> memberPkStrs;
+        redis->smembers(membersKey, std::inserter(memberPkStrs, memberPkStrs.begin()));
+
+        // 파티장 pk
+        auto leaderPkStr = redis->get(leaderKey);
+        uint32_t leaderPk = leaderPkStr.has_value() ? std::stoul(*leaderPkStr) : 0;
+
+        PARTY_INFO_PACKET partyInfo;
+        partyInfo.PacketId = (uint16_t)PACKET_ID::PARTY_INFO_PACKET;
+        partyInfo.PacketLength = sizeof(PARTY_INFO_PACKET);
+        partyInfo.partyId = partyId_;
+        partyInfo.leaderPk = leaderPk;
+        partyInfo.memberCount = static_cast<uint8_t>(memberPkStrs.size());
+
+        // pipeline으로 파티원 정보 한 번에 조회
+        std::vector<uint32_t> memberPks;
+        for (const auto& s : memberPkStrs) {
+            memberPks.push_back(std::stoul(s));
+        }
+
+        auto pipe = redis->pipeline();
+        for (auto pk : memberPks) {
+            pipe.hget("user:" + std::to_string(pk), "level");
+            pipe.hgetall("user:" + std::to_string(pk) + ":equip");
+        }
+        auto replies = pipe.exec();
+
+        // 파티원 정보 조립
+        for (int i = 0; i < (int)memberPks.size(); i++) {
+            auto& member = partyInfo.members[i];
+            member.userPk = memberPks[i];
+
+            // level
+            try {
+                auto level = replies.get<sw::redis::OptionalString>(i * 2);
+                if (level.has_value()) {
+                    member.userLevel = static_cast<uint16_t>(
+                        std::stoul(*level));
+                }
+            }
+            catch (...) {}
+
+            // equip (hgetall로 불러오기)
+            try {
+                std::unordered_map<std::string, std::string> equip;
+                replies.get(i * 2 + 1, std::inserter(equip, equip.begin()));
+                if (equip.count("head")) member.head = std::stoul(equip["head"]);
+                if (equip.count("body")) member.body = std::stoul(equip["body"]);
+                if (equip.count("legs")) member.legs = std::stoul(equip["legs"]);
+                if (equip.count("feet")) member.feet = std::stoul(equip["feet"]);
+            }
+            catch (...) {}
+
+            ConnUser* user = connUsersManager->FindUserByPk(memberPks[i]);
+            if (user) {
+                strncpy_s(member.userId, sizeof(member.userId), user->GetId().c_str(), _TRUNCATE);
+            }
+        }
+
+        connUsersManager->FindUser(connObjNum_)->PushSendMsg(sizeof(partyInfo), (char*)&partyInfo);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[SendPartyInfo] Error: " << e.what() << '\n';
+    }
+}
+
+void RedisManager::SendPartyJoinToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t userPk_, const std::string& userId_, uint16_t userLevel_, uint32_t head_, uint32_t body_, uint32_t legs_, uint32_t feet_) {
+    auto tempUser = connUsersManager->FindUserByPk(targetPk_);
+
+    PARTY_JOIN_NOTIFY notify;
+    notify.PacketId = (uint16_t)PACKET_ID::PARTY_JOIN_NOTIFY;
+    notify.PacketLength = sizeof(notify);
+
+    notify.userPk = userPk_;
+    strncpy_s(notify.userId, sizeof(notify.userId),
+        userId_.c_str(), _TRUNCATE);
+    notify.userLevel = userLevel_;
+    notify.head = head_;
+    notify.body = body_;
+    notify.legs = legs_;
+    notify.feet = feet_;
+
+    tempUser->PushSendMsg(sizeof(notify), (char*)&notify);
+}
+
+void RedisManager::SendPartyLeaveToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t userPk_, uint32_t newLeaderPk_) {
+    auto user = connUsersManager->FindUserByPk(targetPk_);
+
+    // newLeaderPk == 0이면 파티 해산하고 세션 초기화
+    if (newLeaderPk_ == 0) {
+        user->SetPartyId(0);
+    }
+
+    PARTY_LEAVE_NOTIFY notify;
+    notify.PacketId = (uint16_t)PACKET_ID::PARTY_LEAVE_NOTIFY;
+    notify.PacketLength = sizeof(notify);
+    notify.userPk = userPk_;
+    notify.newLeaderPk = newLeaderPk_;  // 0이면 클라도 파티 해산 처리
+    user->PushSendMsg(sizeof(notify), (char*)&notify);
+}
+
+void RedisManager::SendPartyInviteToUser(uint32_t targetPk_, uint32_t senderPk_, const std::string& senderId_, uint16_t senderLevel_, uint32_t partyId_, uint8_t memberCount_) {
+    auto user = connUsersManager->FindUserByPk(targetPk_);
+
+    PARTY_INVITE_NOTIFY notify;
+    notify.PacketId = (uint16_t)PACKET_ID::PARTY_INVITE_NOTIFY;
+    notify.PacketLength = sizeof(notify);
+    strncpy_s(notify.senderId, sizeof(notify.senderId),
+        senderId_.c_str(), _TRUNCATE);
+    notify.senderLevel = senderLevel_;
+    notify.partyId = partyId_;
+    notify.memberCount = memberCount_;
+
+    user->PushSendMsg(sizeof(notify), (char*)&notify);
+}
+
+void RedisManager::SendPartyInviteRejectToUser(uint32_t targetPk_, const std::string& senderId_) {
+    auto user = connUsersManager->FindUserByPk(targetPk_);
+
+    PARTY_INVITE_REJECT_NOTIFY notify;
+    notify.PacketId = (uint16_t)PACKET_ID::PARTY_INVITE_REJECT_NOTIFY;
+    notify.PacketLength = sizeof(notify);
+    strncpy_s(notify.senderId, sizeof(notify.senderId),senderId_.c_str(), _TRUNCATE);
+
+    user->PushSendMsg(sizeof(notify), (char*)&notify);
+}
+
+void RedisManager::SendPartyKickToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t kickedPk_) {
+    auto user = connUsersManager->FindUserByPk(targetPk_);
+    if (!user) return;
+
+    // 강퇴된 본인이면 세션 초기화
+    if (targetPk_ == kickedPk_) {
+        user->SetPartyId(0);
+    }
+
+    PARTY_KICK_NOTIFY notify;
+    notify.PacketId = (uint16_t)PACKET_ID::PARTY_KICK_NOTIFY;
+    notify.PacketLength = sizeof(notify);
+    notify.userPk = kickedPk_;
+    user->PushSendMsg(sizeof(notify), (char*)&notify);
+}
+
+void RedisManager::SendPartyDelegateToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t newLeaderPk_) {
+    auto user = connUsersManager->FindUserByPk(targetPk_);
+
+    PARTY_DELEGATE_NOTIFY notify;
+    notify.PacketId = (uint16_t)PACKET_ID::PARTY_DELEGATE_NOTIFY;
+    notify.PacketLength = sizeof(notify);
+    notify.newLeaderPk = newLeaderPk_;
+    user->PushSendMsg(sizeof(notify), (char*)&notify);
+}
 
 
 
 
+// ============================================ 내부 헬퍼 ============================================
 
 void RedisManager::PublishToUsers(const std::vector<uint32_t>& targetPks_, const std::string& eventMessage_) {
     if (targetPks_.empty()) return;
@@ -736,8 +1444,70 @@ void RedisManager::PublishToUsers(const std::vector<uint32_t>& targetPks_, const
 }
 
 
+void RedisManager::LeavePartyInternal(uint32_t userPk_, uint32_t partyId_) {
+    std::string membersKey = "party:" + std::to_string(partyId_) + ":members";
+    std::string leaderKey = "party:" + std::to_string(partyId_) + ":leader";
+    std::string userKey = "user:" + std::to_string(userPk_);
 
+    // members에서 제거
+    redis->srem(membersKey, std::to_string(userPk_));
 
+    // 세션 + Redis partyId 초기화
+    ConnUser* user = connUsersManager->FindUserByPk(userPk_);
+    if (user) user->SetPartyId(0);
+    redis->hset(userKey, "partyId", "0");
+
+    // 남은 파티원 확인
+    auto remainCount = redis->scard(membersKey);
+
+    if (remainCount == 0) { // 파티 해산
+        redis->del(membersKey);
+        redis->del(leaderKey);
+    }
+    else if (remainCount == 1) {
+        // 2명이었다가 1명 나간 경우 -> 알림 후 해산
+        NotifyPartyLeave(userPk_, partyId_, 0);
+
+        std::unordered_set<std::string> remainMembers;
+        redis->smembers(membersKey,
+            std::inserter(remainMembers, remainMembers.begin()));
+        uint32_t lastPk = std::stoul(*remainMembers.begin());
+
+        ConnUser* lastUser = connUsersManager->FindUserByPk(lastPk);
+        if (lastUser) lastUser->SetPartyId(0);
+        redis->hset("user:" + std::to_string(lastPk), "partyId", "0");
+
+        redis->del(membersKey);
+        redis->del(leaderKey);
+    }
+    else {
+        // 3명 이상 -> 파티 유지
+        uint32_t newLeaderPk = 0;
+        auto leaderPkStr = redis->get(leaderKey);
+        if (leaderPkStr.has_value() &&
+            std::stoul(*leaderPkStr) == userPk_) {
+
+            std::unordered_set<std::string> remainMembers;
+            redis->smembers(membersKey,
+                std::inserter(remainMembers, remainMembers.begin()));
+            newLeaderPk = std::stoul(*remainMembers.begin());
+            redis->set(leaderKey, std::to_string(newLeaderPk));
+        }
+        NotifyPartyLeave(userPk_, partyId_, newLeaderPk);
+    }
+}
+
+bool RedisManager::IsPartyLeader(uint32_t userPk_, uint32_t partyId_) {
+    try {
+        auto leaderPkStr = redis->get("party:" + std::to_string(partyId_) + ":leader");
+        if (!leaderPkStr.has_value()) return false;
+        return std::stoul(*leaderPkStr) == userPk_;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[IsPartyLeader] Error: " << e.what() << '\n';
+        return false;
+    }
+}
 
 
 
