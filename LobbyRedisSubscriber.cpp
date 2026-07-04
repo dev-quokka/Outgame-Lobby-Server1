@@ -64,35 +64,51 @@ void LobbyRedisSubscriber::HandleLobbyEvent(const std::string& channel, const st
     LobbyEventType type = static_cast<LobbyEventType>(std::stoi(message.substr(pos)));
 
     switch (type) {
-        case LobbyEventType::FriendOnline:
-            HandleFriendOnline(message);
-            break;
-        case LobbyEventType::FriendOffline:
-            HandleFriendOffline(message);
-            break;
-        case LobbyEventType::FriendAccepted:
-            HandleFriendAccepted(message);
-            break;
-        case LobbyEventType::FriendRemoved:
-            HandleFriendRemoved(message);
-            break;
-            
-        // 코스튬 관련
-        case LobbyEventType::CostumeChange:
-            HandleCostumeChange(message);
-            break;
-        
-        // 파티 관련
-        case LobbyEventType::PartyJoin:
-            HandlePartyJoin(message);
-            break;
-        case LobbyEventType::PartyLeave:
-            HandlePartyLeave(message);
-            break;
+        // 친구 관련
+    case LobbyEventType::FriendOnline:
+        HandleFriendOnline(message);
+        break;
+    case LobbyEventType::FriendOffline:
+        HandleFriendOffline(message);
+        break;
+    case LobbyEventType::FriendAccepted:
+        HandleFriendAccepted(message);
+        break;
+    case LobbyEventType::FriendRemoved:
+        HandleFriendRemoved(message);
+        break;
+    case LobbyEventType::FriendRequest:
+        HandleFriendRequest(message);
+        break;
 
-        default:
-            std::cerr << "[HandleLobbyEvent] Unknown type: " << message << '\n';
-            break;
+        // 코스튬 관련
+    case LobbyEventType::CostumeChange:
+        HandleCostumeChange(message);
+        break;
+
+        // 파티 관련
+    case LobbyEventType::PartyInvite:
+        HandlePartyInvite(message);
+        break;
+    case LobbyEventType::PartyJoin:
+        HandlePartyJoin(message);
+        break;
+    case LobbyEventType::PartyLeave:
+        HandlePartyLeave(message);
+        break;
+    case LobbyEventType::PartyKick:
+        HandlePartyKick(message);
+        break;
+    case LobbyEventType::PartyDelegate:
+        HandlePartyDelegate(message);
+        break;
+    case LobbyEventType::PartyMemberStatus:
+        HandlePartyMemberStatus(message);
+        break;
+
+    default:
+        std::cerr << "[HandleLobbyEvent] Unknown type: " << message << '\n';
+        break;
     }
 }
 
@@ -278,6 +294,18 @@ void LobbyRedisSubscriber::HandlePartyDelegate(const std::string& message) {
     }
 }
 
+void LobbyRedisSubscriber::HandlePartyMemberStatus(const std::string& message) {
+    // {"type":14,"data":{"partyId":7,"userPk":13,"onlineStatus":0,"targets":[14,15]}}
+    uint32_t partyId = ParseUintField(message, "partyId");
+    uint32_t userPk = ParseUintField(message, "userPk");
+    uint32_t onlineStatus = ParseUintField(message, "onlineStatus");
+    if (partyId == 0 || userPk == 0) return;
+
+    auto targets = ParseTargets(message);
+    for (auto targetPk : targets) {
+        RedisManager::GetInstance().SendPartyMemberStatusToUser(targetPk, partyId, userPk, static_cast<uint8_t>(onlineStatus));
+    }
+}
 
 
 

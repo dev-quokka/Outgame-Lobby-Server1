@@ -1,9 +1,50 @@
-#include <iostream>
-#include "RedisManager.h"
+#include "OutGameLobbyServer.h"
 
 int main() {
-    RedisManager::GetInstance().Connect("127.0.0.1", 6379); // 레디스 연결
-    auto& redis = RedisManager::GetInstance().GetRedis();
+    OutGameLobbyServer server(maxClientCount);
 
+    server.init();
+    server.StartWork();
+
+    std::cout << "========== 로비 서버 1 ==========" << std::endl;
+    std::string k = "";
+
+    while (1) {
+        std::cin >> k;
+        if (k == "E") break;
+    }
+
+    server.ServerEnd();
     return 0;
 }
+
+
+
+// ====================== Friend =======================
+
+// 친구 요청 삭제 or 받기 => 완료
+// 친구 목록 확인 (1. 상태(오프, 온라인 - 로비, 온라인 - 게임중), 2. 레벨, 3. 파티 정보(없음 or 파티 현재 인원))
+// 파티 시스템 완료 후 파티 정보 추가하기 (완료)
+// 친구 온라인 상태 조회 => 완료
+// 친구 온/오프라인 알림 => 완료
+// 친구 삭제 => 완료
+// 친구 요청 전송 => 완료 
+// 친구 요청 알림 수신 => 완료
+// 유저 검색 (1. 상태, 2. 레벨) => 완료
+
+
+// ====================== Party =======================
+
+// 파티 초대하기 (친구목록에서 초대하기) => 완료// 파티 참가하기 (친구목록에서 따라가기) => 완료
+// 파티 탈퇴하기
+// 파티 초대 거절
+// 파티원 강퇴
+// 파티장 위임
+// 코스튬 변경시 파티원들에게 알림
+
+
+// ====================== Inventory =======================
+
+// 코스튬 변경 (파티 없으면 그냥 변경만, 파티 있으면 나머지 파티원한테도 펍섭으로 전달) => 완료
+
+// 인벤토리 확인 => 완료

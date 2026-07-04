@@ -19,33 +19,58 @@ public:
     void Start();
     void Stop();
 
-    void HandleFriendOnline(const std::string& message);
-    void HandleFriendOffline(const std::string& message);
-    void HandleFriendRequest(const std::string& message);
-    void HandleFriendAccepted(const std::string& message);
-    void HandleFriendRemoved(const std::string& message);
-    void HandleCostumeChange(const std::string& message);
-    void HandlePartyJoin(const std::string& message);
-    void HandlePartyLeave(const std::string& message);
-    void HandlePartyInvite(const std::string& message);
-    void HandlePartyKick(const std::string& message);
-    void HandlePartyDelegate(const std::string& message);
+    // ====================== 친구 이벤트 ======================
+    void HandleFriendOnline(const std::string& message);    // 친구 접속 알림 처리
+    void HandleFriendOffline(const std::string& message);   // 친구 로그아웃 알림 처리
+    void HandleFriendRequest(const std::string& message);   // 친구 요청 알림 처리
+    void HandleFriendAccepted(const std::string& message);  // 친구 수락/거절 알림 처리
+    void HandleFriendRemoved(const std::string& message);   // 친구 삭제 알림 처리
 
+
+    // ====================== 코스튬 이벤트 ======================
+    void HandleCostumeChange(const std::string& message);   // 파티원 코스튬 변경 알림 처리
+
+
+    // ====================== 파티 이벤트 ======================
+    void HandlePartyInvite(const std::string& message);       // 파티 초대 알림 처리
+    void HandlePartyJoin(const std::string& message);         // 파티원 입장 알림 처리
+    void HandlePartyLeave(const std::string& message);        // 파티원 탈퇴 알림 처리
+    void HandlePartyKick(const std::string& message);         // 파티원 강퇴 알림 처리
+    void HandlePartyDelegate(const std::string& message);     // 파티장 위임 알림 처리
+    void HandlePartyMemberStatus(const std::string& message); // 파티원 온라인/오프라인 상태 알림 처리
+
+
+    // ====================== 파싱 헬퍼 ======================
+    // message에서 특정 키의 '정수값' 추출
+    // {"type":1,"data":{"userPk":13}} 에서 "userPk" -> 13
     uint32_t ParseUintField(const std::string& message, const std::string& key);
+
+    // message에서 targets '배열' 추출
+    // {"type":1,"data":{"userPk":13,"targets":[14,15]}} 에서 {14, 15} 추출
     std::vector<uint32_t> ParseTargets(const std::string& message);
+
 
     enum class LobbyEventType : uint8_t {
         Unknown = 0,
-        FriendOnline = 1,
-        FriendOffline = 2,
-        CostumeChange = 3,
-        PartyUpdate = 4,
-        MatchStart = 5,
-        FriendAccepted = 6,
-        FriendRemoved = 7,
-        FriendRequest = 8,
-        PartyJoin = 10,
-        PartyLeave = 11,
+
+        // 친구 관련
+        FriendOnline = 1,   // 친구 접속
+        FriendOffline = 2,   // 친구 로그아웃
+        CostumeChange = 3,   // 파티원 코스튬 변경
+        FriendAccepted = 6,   // 친구 요청 수락/거절
+        FriendRemoved = 7,   // 친구 삭제
+        FriendRequest = 8,   // 친구 요청
+
+        // 파티 관련
+        PartyInvite = 9,   // 파티 초대
+        PartyJoin = 10,  // 파티원 입장 (재접속 포함)
+        PartyLeave = 11,  // 파티원 탈퇴
+        PartyKick = 12,  // 파티원 강퇴
+        PartyDelegate = 13,  // 파티장 위임
+        PartyMemberStatus = 14,  // 파티원 온라인/오프라인 상태 변경
+
+        // 매칭 관련
+        MatchStart = 5,  // 매칭 시작
     };
 
 private:

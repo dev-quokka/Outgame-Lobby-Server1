@@ -288,6 +288,13 @@ struct PARTY_DELEGATE_NOTIFY : PACKET_HEADER {
 };
 
 
+// 파티원 온라인/오프라인 상태 알림
+struct PARTY_MEMBER_STATUS_NOTIFY : PACKET_HEADER {
+	uint32_t userPk = 0;
+	uint32_t partyId = 0;
+	uint8_t  onlineStatus = 0;  // 0=오프라인, 1=온라인
+};
+
 
 
 enum class PACKET_ID : uint16_t {
@@ -354,4 +361,6 @@ enum class PACKET_ID : uint16_t {
 	PARTY_DELEGATE_REQUEST = 141,
 	PARTY_DELEGATE_RESPONSE = 142,
 	PARTY_DELEGATE_NOTIFY = 143,
+
+	PARTY_MEMBER_STATUS_NOTIFY = 145,
 };

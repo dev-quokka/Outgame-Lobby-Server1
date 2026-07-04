@@ -6,7 +6,7 @@ bool OutGameLobbyServer::init() {
     int port_ = ServerAddressMap[ServerType::LoginServer].port;
 
     WSADATA wsadata;
-    MaxThreadCnt = maxThreadCount; // Set the number of worker threads
+    MaxThreadCnt = maxThreadCount / 2; // Set the number of worker threads
 
     if (WSAStartup(MAKEWORD(2, 2), &wsadata)) {
         std::cout << "Failed to WSAStartup" << std::endl;
@@ -49,17 +49,14 @@ bool OutGameLobbyServer::init() {
     overLappedManager = new OverLappedManager;
     overLappedManager->init();
 
-    RedisManager::GetInstance().R("127.0.0.1", 6379); // 레디스 연결
+    RedisManager::GetInstance().RedisRun(maxThreadCount); // 레디스 연결
     auto& redis = RedisManager::GetInstance().GetRedis();
 
-    bool m = MySQLConnectionPool::GetInstance().init();
-    if (!m) {
+    bool m = MySQLManager::GetInstance().init();
+    if (!m) return;
 
-    }
-
-    heartbeat_.Start();
-    subscriber_.Start();
-
+    heartbeat_.Start(); // 주기적으로 서버 유저수를 레디스에 올리기 위한 하트비트 쓰레드 실행
+    subscriber_.Start(); // 레디스 펍섭 메시지 받기 위한 쓰레드 실행
     return true;
 }
 

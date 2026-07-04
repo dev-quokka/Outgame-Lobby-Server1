@@ -27,6 +27,5 @@ public:
 private:
     std::mutex pkMapMutex;
     std::unordered_map<uint32_t, uint16_t> pkToObjNum; // key: pk, val: connObjNum
-
     std::vector<ConnUser*> ConnUsers; // ConnUsers Obj
 };

@@ -35,6 +35,7 @@ public:
 
 	void Reset() {
 		isConn = false;
+		Clear();
 		shutdown(userSkt, SD_BOTH);
 		closesocket(userSkt);
 
@@ -48,6 +49,14 @@ public:
 		{
 			std::cout << "createIoCompletionPort Fail : " << GetLastError() << std::endl;
 		}
+	}
+
+	void Clear() {
+		userPk = 0;
+		userId = "";
+		userLevel = 0;
+		userExp = 0;
+		partyId = 0;
 	}
 
 

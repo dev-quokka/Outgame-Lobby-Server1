@@ -1042,6 +1042,36 @@ void RedisManager::NotifyPartyDelegate(uint32_t newLeaderPk_, uint32_t partyId_)
     }
 }
 
+void RedisManager::NotifyPartyMemberStatus(uint32_t userPk_, uint32_t partyId_, uint8_t onlineStatus_) {
+    try {
+        std::string membersKey = "party:" +
+            std::to_string(partyId_) + ":members";
+        std::unordered_set<std::string> memberPkStrs;
+        redis->smembers(membersKey,
+            std::inserter(memberPkStrs, memberPkStrs.begin()));
+
+        std::vector<uint32_t> otherMembers;
+        for (const auto& s : memberPkStrs) {
+            uint32_t pk = std::stoul(s);
+            if (pk != userPk_) otherMembers.push_back(pk);
+        }
+        if (otherMembers.empty()) return;
+
+        std::string message =
+            R"({"type":14,"data":{"partyId":)"
+            + std::to_string(partyId_)
+            + R"(,"userPk":)" + std::to_string(userPk_)
+            + R"(,"onlineStatus":)" + std::to_string(onlineStatus_)
+            + R"(}})";
+
+        PublishToUsers(otherMembers, message);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[NotifyPartyMemberStatus] Error: "
+            << e.what() << '\n';
+    }
+}
+
 
 // ====================== UserState =======================
 
@@ -1118,6 +1148,10 @@ void RedisManager::UserConnect(uint16_t connObjNum_, uint16_t packetSize_, char*
     }
     tempUser->SetPartyId(currentPartyId);
 
+    if (currentPartyId != 0) {
+        SendPartyInfo(connObjNum_, currentPartyId);       
+        NotifyPartyMemberStatus(userPk, currentPartyId, 1); // 파티원들에게 재접속 알림
+    }
 
     // Redis 상태 갱신
     std::string userKey = "user:" + std::to_string(userPk);
@@ -1137,26 +1171,38 @@ void RedisManager::UserConnect(uint16_t connObjNum_, uint16_t packetSize_, char*
 }
 
 void RedisManager::UserDisConnect(uint16_t connObjNum_) {
-    auto user = connUsersManager->FindUser(connObjNum_);
-    uint32_t userPk = user->GetPk();
+    auto tempUser = connUsersManager->FindUser(connObjNum_);
 
-    // 친구들에게 오프라인 알림
-    NotifyFriendOffline(userPk);
+    uint32_t userPk = tempUser->GetPk();
+    uint32_t partyId = tempUser->GetPartId();
 
-    auto pipe = redis->pipeline();
+    if (userPk == 0) return;
 
-    //redis->hset(userInfokey, "userstate", "offline"); // Set user status to "offline" in Redis Cluster
-    //redis->expire(equipmentkey, std::chrono::seconds(180)); // ttl 3분 설정
-    //redis->expire(consumablekey, std::chrono::seconds(180)); // ttl 3분 설정
-    //redis->expire(materialkey, std::chrono::seconds(180)); // ttl 3분 설정
+    try {
+        // 1. 파티 있으면 파티원들에게 오프라인 알림
+        if (partyId != 0) {
+            NotifyPartyMemberStatus(userPk, partyId, 0);  // 0=오프라인
+        }
 
-    pipe.exec();
+        // 2. 친구들에게 오프라인 알림
+        NotifyFriendOffline(userPk);
 
+        // 3. Redis 상태 처리 (state, equip)
+        std::string userKey = "user:" + std::to_string(userPk);
+        auto pipe = redis->pipeline();
+        pipe.hset(userKey, "state", "offline")
+            .expire(userKey, std::chrono::seconds(60))
+            .del(userKey + ":equip");
+        pipe.exec();
 
-    connUsersManager->FindUser(connObjNum_)->DelFriendPks();
-    connUsersManager->DelPkToObjNum(userPk);
+        // 4. pk, objNum 매핑 제거
+        connUsersManager->DelPkToObjNum(userPk);
+        std::cout << "[UserDisConnect] userPk: " << userPk << '\n';
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[UserDisConnect] Error: " << e.what() << '\n';
+    }
 }
-
 
 
 
@@ -1389,6 +1435,18 @@ void RedisManager::SendPartyDelegateToUser(uint32_t targetPk_, uint32_t partyId_
     user->PushSendMsg(sizeof(notify), (char*)&notify);
 }
 
+void RedisManager::SendPartyMemberStatusToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t userPk_, uint8_t onlineStatus_) {
+    auto user = connUsersManager->FindUserByPk(targetPk_);
+    if (!user) return;
+
+    PARTY_MEMBER_STATUS_NOTIFY notify;
+    notify.PacketId = (uint16_t)PACKET_ID::PARTY_MEMBER_STATUS_NOTIFY;
+    notify.PacketLength = sizeof(notify);
+    notify.userPk = userPk_;
+    notify.partyId = partyId_;
+    notify.onlineStatus = onlineStatus_;
+    user->PushSendMsg(sizeof(notify), (char*)&notify);
+}
 
 
 
@@ -1508,29 +1566,3 @@ bool RedisManager::IsPartyLeader(uint32_t userPk_, uint32_t partyId_) {
         return false;
     }
 }
-
-
-
-// ====================== Friend =======================
-
-// 친구 요청 삭제 or 받기 => 완료
-
-// 친구 목록 확인 (1. 상태(오프, 온라인 - 로비, 온라인 - 게임중), 2. 레벨, 3. 파티 정보(없음 or 파티 현재 인원))
-// => 파티 시스템 완료 후 파티 정보 추가하기
-
-// 유저 검색 (1. 상태, 2. 레벨) => 완료
-
-
-// ====================== Party =======================
-
-// 파티 초대하기 (친구목록에서 초대하기)
-
-// 파티 참가하기 (친구목록에서 따라가기)
-
-
-
-// ====================== Inventory =======================
-
-// 코스튬 변경 (파티 없으면 그냥 변경만, 파티 있으면 나머지 파티원한테도 펍섭으로 전달)
-
-// 인벤토리 확인 => 완료

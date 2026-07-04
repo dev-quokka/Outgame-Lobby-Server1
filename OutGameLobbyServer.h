@@ -8,8 +8,7 @@
 #include "OverLappedManager.h"
 #include "ServerChannelEnum.h"
 #include "RedisManager.h"
-#include "MySQLConnectionPool.h"
-
+#include "MySQLManager.h"
 #include "LobbyHeartbeat.h"
 #include "LobbyRedisSubscriber.h"
 
@@ -23,8 +22,6 @@ public:
     bool StartWork();
     void ServerEnd();
 
-    // ==================== SERVER CONNECTION ======================
-    bool CashServerConnect();
 
 private:
     // ===================== THREAD MANAGEMENT =====================

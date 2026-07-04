@@ -26,6 +26,13 @@ public:
 
     void SetConnUsersManager(ConnUsersManager* mgr) { connUsersManager = mgr; }
 
+
+    // ===================== REDIS MANAGEMENT =====================
+    void RedisRun(const uint16_t RedisThreadCnt_);
+    bool CreateRedisThread(const uint16_t RedisThreadCnt_);
+    void RedisThread();
+
+
     // ====================== INITIALIZATION =======================
     void Init(const uint16_t RedisThreadCnt_);
 
@@ -88,7 +95,7 @@ public:
     void NotifyPartyLeave(uint32_t userPk_, uint32_t partyId_, uint32_t newLeaderPk_);
     void NotifyPartyKick(uint32_t targetPk_, uint32_t partyId_);
     void NotifyPartyDelegate(uint32_t newLeaderPk_, uint32_t partyId_);
-
+    void NotifyPartyMemberStatus(uint32_t userPk_, uint32_t partyId_, uint8_t onlineStatus_);
 
     // ====================== Pub/Sub 수신 후 타겟 유저에게 전달 ======================
     // *** 다른 서버에서 publish된 메시지를 받아 이 서버의 타겟 유저에게 패킷 전송 ****
@@ -112,6 +119,7 @@ public:
     void SendPartyInviteRejectToUser(uint32_t targetPk_,const std::string& senderId_);
     void SendPartyKickToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t kickedPk_);
     void SendPartyDelegateToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t newLeaderPk_);
+    void SendPartyMemberStatusToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t userPk_, uint8_t onlineStatus_);
 
 
     // ====================== 내부 헬퍼 ======================
@@ -134,11 +142,6 @@ private:
             }
         }
     }
-
-    // ===================== REDIS MANAGEMENT =====================
-    void RedisRun(const uint16_t RedisThreadCnt_);
-    bool CreateRedisThread(const uint16_t RedisThreadCnt_);
-    void RedisThread();
 
 
     typedef void(RedisManager::* RECV_PACKET_FUNCTION)(uint16_t, uint16_t, char*);
