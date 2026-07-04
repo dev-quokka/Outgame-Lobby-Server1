@@ -297,6 +297,21 @@ struct PARTY_MEMBER_STATUS_NOTIFY : PACKET_HEADER {
 
 
 
+
+
+struct MATCH_START_REQUEST : PACKET_HEADER {
+	// 별도 데이터 없음
+};
+
+struct MATCH_START_RESPONSE : PACKET_HEADER {
+	bool    isSuccess = false;
+	uint8_t failCode = 0;
+	// 0=성공, 1=파티장 아님, 2=서버오류
+};
+
+
+
+
 enum class PACKET_ID : uint16_t {
 
 	// ======================= CENTER SERVER (1~ ) =======================
@@ -363,4 +378,8 @@ enum class PACKET_ID : uint16_t {
 	PARTY_DELEGATE_NOTIFY = 143,
 
 	PARTY_MEMBER_STATUS_NOTIFY = 145,
+
+
+	MATCH_START_REQUEST = 201,
+	MATCH_START_RESPONSE = 202,
 };

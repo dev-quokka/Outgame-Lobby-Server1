@@ -38,7 +38,7 @@ public:
     void HandlePartyKick(const std::string& message);         // 파티원 강퇴 알림 처리
     void HandlePartyDelegate(const std::string& message);     // 파티장 위임 알림 처리
     void HandlePartyMemberStatus(const std::string& message); // 파티원 온라인/오프라인 상태 알림 처리
-
+    void HandleMatchStart(const std::string& message);        // 매칭 시작
 
     // ====================== 파싱 헬퍼 ======================
     // message에서 특정 키의 '정수값' 추출

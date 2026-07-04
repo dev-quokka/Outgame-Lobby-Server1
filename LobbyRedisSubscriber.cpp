@@ -106,12 +106,16 @@ void LobbyRedisSubscriber::HandleLobbyEvent(const std::string& channel, const st
         HandlePartyMemberStatus(message);
         break;
 
+        // 매칭 관련
+    case LobbyEventType::MatchStart:
+        HandleMatchStart(message);
+        break;
+
     default:
         std::cerr << "[HandleLobbyEvent] Unknown type: " << message << '\n';
         break;
     }
 }
-
 
 
 
@@ -307,7 +311,16 @@ void LobbyRedisSubscriber::HandlePartyMemberStatus(const std::string& message) {
     }
 }
 
+void LobbyRedisSubscriber::HandleMatchStart(const std::string& message) {
+    // {"type":5,"data":{"partyId":7,"targets":[14,15]}}
+    uint32_t partyId = ParseUintField(message, "partyId");
+    if (partyId == 0) return;
 
+    auto targets = ParseTargets(message);
+    for (auto targetPk : targets) {
+        RedisManager::GetInstance().SendMatchStartToUser(targetPk);
+    }
+}
 
 
 // message에서 특정 키의 정수값 추출하는 함수

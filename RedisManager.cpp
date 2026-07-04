@@ -850,6 +850,39 @@ void RedisManager::ProcessPartyDelegate(uint16_t connObjNum_, uint16_t packetSiz
     }
 }
 
+void RedisManager::ProcessMatchStart(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_) {
+    MATCH_START_RESPONSE res;
+    res.PacketId = (uint16_t)PACKET_ID::MATCH_START_RESPONSE;
+    res.PacketLength = sizeof(MATCH_START_RESPONSE);
+
+    auto tempUser = connUsersManager->FindUser(connObjNum_);
+    uint32_t myPk = tempUser->GetPk();
+    uint32_t partyId = tempUser->GetPartId();
+
+    // 파티 있으면 파티장인지 확인
+    if (partyId != 0) {
+        if (!IsPartyLeader(myPk, partyId)) {
+            res.isSuccess = false;
+            res.failCode = (uint8_t)PartyFailCode::NotLeader;
+            tempUser->PushSendMsg(sizeof(res), (char*)&res);
+            return;
+        }
+    }
+
+    res.isSuccess = true;
+    tempUser->PushSendMsg(sizeof(res), (char*)&res);
+
+    // 파티 있으면 파티원들에게도 매칭 시작 알림
+    if (partyId != 0) {
+        NotifyMatchStart(myPk, partyId);
+    }
+
+    std::cout << "[ProcessMatchStart] myPk: " << myPk
+        << " partyId: " << partyId << '\n';
+}
+
+
+
 
 // ============================================ REDIS Pub/Sub 발행 ============================================
 
@@ -1069,6 +1102,33 @@ void RedisManager::NotifyPartyMemberStatus(uint32_t userPk_, uint32_t partyId_, 
     catch (const std::exception& e) {
         std::cerr << "[NotifyPartyMemberStatus] Error: "
             << e.what() << '\n';
+    }
+}
+
+void RedisManager::NotifyMatchStart(uint32_t leaderPk_, uint32_t partyId_) {
+    try {
+        std::string membersKey = "party:" + std::to_string(partyId_) + ":members";
+        std::unordered_set<std::string> memberPkStrs;
+        redis->smembers(membersKey,
+            std::inserter(memberPkStrs, memberPkStrs.begin()));
+
+        // 파티장 제외한 파티원들
+        std::vector<uint32_t> otherMembers;
+        for (const auto& s : memberPkStrs) {
+            uint32_t pk = std::stoul(s);
+            if (pk != leaderPk_) otherMembers.push_back(pk);
+        }
+        if (otherMembers.empty()) return;
+
+        std::string message =
+            R"({"type":5,"data":{"partyId":)"
+            + std::to_string(partyId_)
+            + R"(}})";
+
+        PublishToUsers(otherMembers, message);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[NotifyMatchStart] Error: " << e.what() << '\n';
     }
 }
 
@@ -1445,6 +1505,17 @@ void RedisManager::SendPartyMemberStatusToUser(uint32_t targetPk_, uint32_t part
     notify.userPk = userPk_;
     notify.partyId = partyId_;
     notify.onlineStatus = onlineStatus_;
+    user->PushSendMsg(sizeof(notify), (char*)&notify);
+}
+
+void RedisManager::SendMatchStartToUser(uint32_t targetPk_) {
+    auto user = connUsersManager->FindUserByPk(targetPk_);
+    if (!user) return;
+
+    MATCH_START_RESPONSE notify;
+    notify.PacketId = (uint16_t)PACKET_ID::MATCH_START_RESPONSE;
+    notify.PacketLength = sizeof(notify);
+    notify.isSuccess = true;
     user->PushSendMsg(sizeof(notify), (char*)&notify);
 }
 

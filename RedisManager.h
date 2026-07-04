@@ -77,6 +77,8 @@ public:
     void ProcessPartyKick(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
     // 파티장 위임 (파티장만 가능)
     void ProcessPartyDelegate(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
+    // 매칭 시작 (파티 없으면 혼자, 파티 있으면 파티장만 가능)
+    void ProcessMatchStart(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_);
 
 
 
@@ -93,9 +95,16 @@ public:
     void NotifyPartyJoin(uint32_t newUserPk_, uint32_t partyId_);
     // 파티원 탈퇴 시 남은 파티원들에게 알림 (newLeaderPk=0이면 파티 해산)
     void NotifyPartyLeave(uint32_t userPk_, uint32_t partyId_, uint32_t newLeaderPk_);
+    // 파티원 강퇴 시 강퇴된 유저 + 남은 파티원들에게 알림
     void NotifyPartyKick(uint32_t targetPk_, uint32_t partyId_);
+    // 파티장 위임 시 파티원들에게 새 파티장 알림
     void NotifyPartyDelegate(uint32_t newLeaderPk_, uint32_t partyId_);
+    // 파티원 온라인/오프라인 상태 변경 알림 (팅김/재접속 시)
     void NotifyPartyMemberStatus(uint32_t userPk_, uint32_t partyId_, uint8_t onlineStatus_);
+    // 매칭 시작 시 파티원들에게 알림
+    void NotifyMatchStart(uint32_t leaderPk_, uint32_t partyId_);
+
+
 
     // ====================== Pub/Sub 수신 후 타겟 유저에게 전달 ======================
     // *** 다른 서버에서 publish된 메시지를 받아 이 서버의 타겟 유저에게 패킷 전송 ****
@@ -116,17 +125,26 @@ public:
     void SendPartyLeaveToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t userPk_, uint32_t newLeaderPk_);
     // 파티 초대 알림 패킷 전송
     void SendPartyInviteToUser(uint32_t targetPk_, uint32_t senderPk_, const std::string& senderId_, uint16_t senderLevel_, uint32_t partyId_, uint8_t memberCount_);
-    void SendPartyInviteRejectToUser(uint32_t targetPk_,const std::string& senderId_);
+    // 파티 초대 거절 알림 패킷 전송 (초대한 유저에게)
+    void SendPartyInviteRejectToUser(uint32_t targetPk_, const std::string& senderId_);
+    // 파티원 강퇴 알림 패킷 전송 (강퇴된 유저 + 파티원들에게)
     void SendPartyKickToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t kickedPk_);
+    // 파티장 위임 알림 패킷 전송 (파티원들에게)
     void SendPartyDelegateToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t newLeaderPk_);
+    // 파티원 온라인/오프라인 상태 알림 패킷 전송
     void SendPartyMemberStatusToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t userPk_, uint8_t onlineStatus_);
+    // 매칭 시작 알림 패킷 전송 (파티원들에게)
+    void SendMatchStartToUser(uint32_t targetPk_);
+
 
 
     // ====================== 내부 헬퍼 ======================
 
     // 타겟 pk 목록의 서버 위치 조회 후 서버별로 묶어 publish
     void PublishToUsers(const std::vector<uint32_t>& targetPks_, const std::string& message_);
+    // 파티 탈퇴 공통 로직
     void LeavePartyInternal(uint32_t userPk_, uint32_t partyId_);
+    // Redis에서 파티장 여부 확인 (파티장 전용 기능 권한 체크용)
     bool IsPartyLeader(uint32_t userPk_, uint32_t partyId_);
 
     RedisManager(const RedisManager&) = delete;
