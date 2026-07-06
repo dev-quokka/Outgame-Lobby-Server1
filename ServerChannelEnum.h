@@ -3,8 +3,6 @@
 #include <string>
 #include <unordered_map>
 
-constexpr uint16_t CHANNEL_SERVER_START_NUMBER = 0;
-constexpr uint16_t GAME_SERVER_START_NUMBER = 2;
 
 //  =========================== SERVER INFO  ===========================
 
@@ -37,3 +35,6 @@ inline std::unordered_map<ServerType, std::string> ServerNamesMap = {
 inline std::string GetServerName(const ServerType serverType_) {
 	return ServerNamesMap[serverType_];
 }
+
+constexpr int SERVER_ID = 1;
+constexpr ServerType SERVER_TYPE = ServerType::LobbyServer01;

@@ -423,93 +423,6 @@ void RedisManager::ProcessPartyFollow(uint16_t connObjNum_, uint16_t packetSize_
     }
 }
 
-void RedisManager::ProcessPartyLeave(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_) {
-    PARTY_LEAVE_RESPONSE res;
-    res.PacketId = (uint16_t)PACKET_ID::PARTY_LEAVE_RESPONSE;
-    res.PacketLength = sizeof(PARTY_LEAVE_RESPONSE);
-
-    auto tempUser = connUsersManager->FindUser(connObjNum_);
-    uint32_t myPk = tempUser->GetPk();
-    uint32_t partyId = tempUser->GetPartId();
-
-    // 파티에 없으면 불가
-    if (partyId == 0) {
-        res.isSuccess = false;
-        res.failCode = (uint8_t)PartyFailCode::NotInParty;
-        tempUser->PushSendMsg(sizeof(res), (char*)&res);
-        return;
-    }
-
-    try {
-        std::string membersKey = "party:" + std::to_string(partyId) + ":members";
-        std::string leaderKey = "party:" + std::to_string(partyId) + ":leader";
-        std::string userKey = "user:" + std::to_string(myPk);
-
-        // members에서 A 제거
-        redis->srem(membersKey, std::to_string(myPk));
-
-        // 세션 + Redis partyId 초기화
-        tempUser->SetPartyId(0);
-        redis->hset(userKey, "partyId", "0");
-
-        // 남은 파티원 확인
-        auto remainCount = redis->scard(membersKey);
-
-        if (remainCount == 0) { // 파티 2명만 있었으면 파티 바로 해산
-            redis->del(membersKey);
-            redis->del(leaderKey);
-            std::cout << "[ProcessPartyLeave] Party disbanded. partyId: " << partyId << '\n';
-        }
-        else if (remainCount == 1) {  // 2명이었다가 1명 나간 경우 -> 남은 1명에게 알림 후 해산
-            // 알림 먼저 보내고
-            NotifyPartyLeave(myPk, partyId, 0);  // newLeaderPk=0 (해산이라)
-
-            // 남은 1명 세션 partyId 초기화
-            std::unordered_set<std::string> remainMembers;
-            redis->smembers(membersKey, std::inserter(remainMembers, remainMembers.begin()));
-            uint32_t lastPk = std::stoul(*remainMembers.begin());
-
-            auto lastUser = connUsersManager->FindUserByPk(lastPk);
-            if (lastUser) lastUser->SetPartyId(0);
-            redis->hset("user:" + std::to_string(lastPk), "partyId", "0");
-
-            // 파티 해산
-            redis->del(membersKey);
-            redis->del(leaderKey);
-            std::cout << "[ProcessPartyLeave] Party disbanded (2→1). partyId: " << partyId << '\n';
-        }
-        else { // 3명 이상 -> 파티 유지
-
-            // 파티장이었으면 자동 위임
-            uint32_t newLeaderPk = 0;
-            auto leaderPkStr = redis->get(leaderKey);
-            if (leaderPkStr.has_value() &&
-                std::stoul(*leaderPkStr) == myPk) {
-
-                std::unordered_set<std::string> remainMembers;
-                redis->smembers(membersKey, std::inserter(remainMembers, remainMembers.begin()));
-
-                newLeaderPk = std::stoul(*remainMembers.begin());
-                redis->set(leaderKey, std::to_string(newLeaderPk));
-                std::cout << "[ProcessPartyLeave] New leader: " << newLeaderPk << '\n';
-            }
-
-            // 남은 파티원들에게 탈퇴 알림
-            NotifyPartyLeave(myPk, partyId, newLeaderPk);
-        }
-
-        res.isSuccess = true;
-        tempUser->PushSendMsg(sizeof(res), (char*)&res);
-        std::cout << "[ProcessPartyLeave] userPk: " << myPk << " partyId: " << partyId << '\n';
-    }
-    catch (const std::exception& e) {
-        std::cerr << "[ProcessPartyLeave] Error: " << e.what() << '\n';
-        res.isSuccess = false;
-        res.failCode = (uint8_t)PartyFailCode::ServerError;
-        tempUser->PushSendMsg(sizeof(res), (char*)&res);
-    }
-}
-
 void RedisManager::ProcessPartyInvite(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_) {
 
     auto reqPacket = reinterpret_cast<PARTY_INVITE_REQUEST*>(pPacket_);
@@ -1214,7 +1127,6 @@ void RedisManager::UserConnect(uint16_t connObjNum_, uint16_t packetSize_, char*
     }
 
     // Redis 상태 갱신
-    std::string userKey = "user:" + std::to_string(userPk);
     std::unordered_map<std::string, std::string> fields = {
         {"state",   "lobby"},
         {"partyId", std::to_string(currentPartyId)},
@@ -1299,10 +1211,7 @@ void RedisManager::SendFriendStatusToUser(uint32_t targetPk_, uint32_t friendPk_
 }
 
 void RedisManager::SendFriendAcceptToUser(uint32_t targetPk_, uint32_t friendPk_, uint16_t accept_) {
-    auto tempObjNum = connUsersManager->GetObjNumByPk(targetPk_); // 친구 요청 상태 받을 현재 서버에 있는 유저 
-    if (!tempObjNum) return;  // 이 서버에 없는 유저
-
-    auto tempConnUser = connUsersManager->FindUser(tempObjNum);
+    auto tempConnUser = connUsersManager->FindUserByPk(targetPk_); // 친구 요청 상태 받을 현재 서버에 있는 유저 
 
     // 세션 캐시 갱신
     if (accept_ == 0) { // 수락/친구 추가

@@ -9,14 +9,14 @@
 #include <atomic>
 #include <string>
 
-#include "RedisManager.h"
+#include "ServerChannelEnum.h"
 
 class LobbyRedisSubscriber {
 public:
-    LobbyRedisSubscriber(int serverId);
+    LobbyRedisSubscriber();
     ~LobbyRedisSubscriber();
 
-    void Start();
+    void Start(int serverId_);
     void Stop();
 
     // ====================== 친구 이벤트 ======================
@@ -40,6 +40,7 @@ public:
     void HandlePartyMemberStatus(const std::string& message); // 파티원 온라인/오프라인 상태 알림 처리
     void HandleMatchStart(const std::string& message);        // 매칭 시작
 
+
     // ====================== 파싱 헬퍼 ======================
     // message에서 특정 키의 '정수값' 추출
     // {"type":1,"data":{"userPk":13}} 에서 "userPk" -> 13
@@ -48,7 +49,7 @@ public:
     // message에서 targets '배열' 추출
     // {"type":1,"data":{"userPk":13,"targets":[14,15]}} 에서 {14, 15} 추출
     std::vector<uint32_t> ParseTargets(const std::string& message);
-
+    std::string ParseStringField(const std::string& message, const std::string& key);
 
     enum class LobbyEventType : uint8_t {
         Unknown = 0,
@@ -78,7 +79,7 @@ private:
     void SubscribeLoop();
     void HandleLobbyEvent(const std::string& channel, const std::string& message);
 
-    int              serverId_;
+    int              serverId;
     ServerType serverType_;
     std::atomic<bool> running_{ false };
     std::thread      subThread_;

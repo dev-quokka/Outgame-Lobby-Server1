@@ -6,6 +6,7 @@
 #include <chrono>
 
 #include "FailCode.h"
+#include "UserTypes.h"
 
 constexpr uint16_t MAX_IP_LEN = 32;
 constexpr uint16_t MAX_SERVER_USERS = 128;
@@ -195,15 +196,6 @@ struct PARTY_INVITE_REJECT_NOTIFY : PACKET_HEADER {
 	char senderId[MAX_USER_ID_LEN] = {};  // 거절한 유저 ID
 };
 
-
-// 새 멤버 입장 알림 (기존 파티원들에게)
-struct PARTY_JOIN_NOTIFY : PACKET_HEADER {
-	char     userId[MAX_USER_ID_LEN] = {};
-	uint32_t userPk = 0;
-	uint16_t userLevel = 0;
-	uint8_t  memberCount = 0;  // 갱신된 파티원 수
-};
-
 // 새로 들어오는 파티 유저에게 기존 파티 정보 전달
 struct PARTY_INFO_PACKET : PACKET_HEADER {
 	uint32_t partyId = 0;
@@ -223,7 +215,7 @@ struct PARTY_INFO_PACKET : PACKET_HEADER {
 	} members[4];
 };
 
-
+// 새 멤버 입장 알림 (기존 파티원들에게)
 struct PARTY_JOIN_NOTIFY : PACKET_HEADER {
 	char     userId[MAX_USER_ID_LEN] = {};
 	uint32_t userPk = 0;
@@ -232,6 +224,7 @@ struct PARTY_JOIN_NOTIFY : PACKET_HEADER {
 	uint32_t legs = 0;
 	uint32_t feet = 0;
 	uint16_t userLevel = 0;
+	uint8_t  memberCount = 0;  // 갱신된 파티원 수
 };
 
 
@@ -314,11 +307,10 @@ struct MATCH_START_RESPONSE : PACKET_HEADER {
 
 enum class PACKET_ID : uint16_t {
 
-	// ======================= CENTER SERVER (1~ ) =======================
+	// ======================= LOBBY SERVER (21~ ) =======================
 
-	// SYSTEM (1~)
-	USER_LOBBY_CONNECT_REQUEST = 1,
-	USER_LOBBY_CONNECT_RESPONSE = 2,
+	USER_LOBBY_CONNECT_REQUEST = 21,
+	USER_LOBBY_CONNECT_RESPONSE = 22,
 
 
 	USER_SEARCH_REQUEST = 25,
@@ -362,7 +354,6 @@ enum class PACKET_ID : uint16_t {
 
 	PARTY_JOIN_NOTIFY = 114,
 	PARTY_INFO_PACKET = 115,
-	PARTY_JOIN_NOTIFY = 116,
 
 	PARTY_LEAVE_REQUEST = 121,
 	PARTY_LEAVE_RESPONSE = 122,

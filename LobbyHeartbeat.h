@@ -11,10 +11,10 @@ constexpr int TtlSec = 15;
 
 class LobbyHeartbeat {
 public:
-    LobbyHeartbeat(int serverId_);
+    LobbyHeartbeat();
     ~LobbyHeartbeat();
 
-    void Start();
+    void Start(int serverId_);
     void Stop();
 
     void OnUserConnected();

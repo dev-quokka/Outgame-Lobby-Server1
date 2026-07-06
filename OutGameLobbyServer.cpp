@@ -3,7 +3,7 @@
 // ========================== INITIALIZATION ===========================
 
 bool OutGameLobbyServer::init() {
-    int port_ = ServerAddressMap[ServerType::LoginServer].port;
+    int port_ = ServerAddressMap[ServerType::LobbyServer01].port;
 
     WSADATA wsadata;
     MaxThreadCnt = maxThreadCount / 2; // Set the number of worker threads
@@ -53,10 +53,10 @@ bool OutGameLobbyServer::init() {
     auto& redis = RedisManager::GetInstance().GetRedis();
 
     bool m = MySQLManager::GetInstance().init();
-    if (!m) return;
+    if (!m) return false;
 
-    heartbeat_.Start(); // 주기적으로 서버 유저수를 레디스에 올리기 위한 하트비트 쓰레드 실행
-    subscriber_.Start(); // 레디스 펍섭 메시지 받기 위한 쓰레드 실행
+    heartbeat_.Start(SERVER_ID); // 주기적으로 서버 유저수를 레디스에 올리기 위한 하트비트 쓰레드 실행
+    subscriber_.Start(SERVER_ID); // 레디스 펍섭 메시지 받기 위한 쓰레드 실행
     return true;
 }
 

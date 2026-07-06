@@ -1,15 +1,18 @@
 #include "LobbyRedisSubscriber.h"
+#include "RedisManager.h"
 
-LobbyRedisSubscriber::LobbyRedisSubscriber(int serverId) : serverId_(serverId) {}
+LobbyRedisSubscriber::LobbyRedisSubscriber() {}
 LobbyRedisSubscriber::~LobbyRedisSubscriber() {
     Stop();
 }
 
-void LobbyRedisSubscriber::Start() {
+void LobbyRedisSubscriber::Start(int serverId_) {
+    serverId = serverId_;
+    serverType_ = SERVER_TYPE;
+
     running_ = true;
     subThread_ = std::thread(&LobbyRedisSubscriber::SubscribeLoop, this);
-    std::cout << "[LobbyRedisSubscriber] Server " << serverId_
-        << " subscribing to lobby:events\n";
+    std::cout << "[LobbyRedisSubscriber] Server " << serverId_ << " subscribing to lobby:events\n";
 }
 
 void LobbyRedisSubscriber::Stop() {
@@ -33,7 +36,7 @@ void LobbyRedisSubscriber::SubscribeLoop() {
 
         sub.subscribe(channel);
 
-        std::cout << "[LobbyRedisSubscriber] Server " << serverId_ << " subscribing to " << channel << '\n';
+        std::cout << "[LobbyRedisSubscriber] Server " << serverId << " subscribing to " << channel << '\n';
 
         while (running_) {
             try {
@@ -142,17 +145,6 @@ void LobbyRedisSubscriber::HandleFriendOffline(const std::string& message) {
 }
 
 
-
-void LobbyRedisSubscriber::HandleCostumeChange(const std::string& message) {
-    // message 형식 : {"type":3,"data":{"userPk":13,"slot":1,"itemCode":1024}}
-
-    uint32_t userPk = ParseUintField(message, "userPk");
-    uint32_t slot = ParseUintField(message, "slot");
-    uint32_t itemCode = ParseUintField(message, "itemCode");
-
-    if (userPk == 0 || slot == 0 || itemCode == 0) return;
-    std::cout << "[HandleCostumeChange] userPk: " << userPk << " slot: " << slot << " itemCode: " << itemCode << '\n';
-}
 
 void LobbyRedisSubscriber::HandleFriendRequest(const std::string& message) {
     // message 형식: {"type":8,"data":{"targetPk":14,"senderPk":5,"senderId":"dongchan","senderLevel":30,"onlineStatus":1}}
@@ -358,7 +350,7 @@ std::vector<uint32_t> LobbyRedisSubscriber::ParseTargets(const std::string& mess
 }
 
 // 문자열 필드 추출하는 함수
-std::string ParseStringField(const std::string& message, const std::string& key) {
+std::string LobbyRedisSubscriber::ParseStringField(const std::string& message, const std::string& key) {
     std::string search = "\"" + key + "\":\"";
 
     auto pos = message.find(search);
