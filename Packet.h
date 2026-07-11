@@ -29,6 +29,9 @@ struct PacketInfo
 	char* pData = nullptr;
 };
 
+
+#pragma pack(push, 1)
+
 struct PACKET_HEADER
 {
 	uint16_t PacketLength;
@@ -87,7 +90,7 @@ struct FRIEND_REQUEST_NOTIFY : PACKET_HEADER {
 
 // 친구 요청 수락/거부 알림 패킷
 struct FRIEND_ACCEPT_NOTIFY : PACKET_HEADER {
-	uint32_t friendPk = 0;  // 상태가 바뀐 친구 pk
+	char     senderId[MAX_USER_ID_LEN] = {};
 	uint8_t  accept = 0;  // 0=수락, 1=거절
 };
 
@@ -302,7 +305,7 @@ struct MATCH_START_RESPONSE : PACKET_HEADER {
 	// 0=성공, 1=파티장 아님, 2=서버오류
 };
 
-
+#pragma pack(pop)
 
 
 enum class PACKET_ID : uint16_t {
@@ -357,7 +360,7 @@ enum class PACKET_ID : uint16_t {
 
 	PARTY_LEAVE_REQUEST = 121,
 	PARTY_LEAVE_RESPONSE = 122,
-
+	
 	PARTY_LEAVE_NOTIFY = 124,
 
 	PARTY_KICK_REQUEST = 131,

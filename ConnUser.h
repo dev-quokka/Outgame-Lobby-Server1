@@ -180,13 +180,13 @@ public:
 	bool ConnUserRecv() {
 		OverlappedEx* tempOvLap = (overLappedManager->getOvLap());
 
-		if (tempOvLap == nullptr) { // Allocate new overlap if pool is empty
-			OverlappedEx* overlappedEx = new OverlappedEx;
-			ZeroMemory(overlappedEx, sizeof(OverlappedEx));
-			overlappedEx->wsaBuf.len = MAX_RECV_SIZE;
-			overlappedEx->wsaBuf.buf = new char[MAX_RECV_SIZE];
-			overlappedEx->connObjNum = connObjNum;
-			overlappedEx->taskType = TaskType::NEWSEND;
+		if (tempOvLap == nullptr) {
+			tempOvLap = new OverlappedEx;  // ¡ç tempOvLap¿¡ ´ëÀÔ!
+			ZeroMemory(tempOvLap, sizeof(OverlappedEx));
+			tempOvLap->wsaBuf.len = MAX_RECV_SIZE;
+			tempOvLap->wsaBuf.buf = new char[MAX_RECV_SIZE];
+			tempOvLap->connObjNum = connObjNum;
+			tempOvLap->taskType = TaskType::NEWRECV;
 		}
 		else {
 			tempOvLap->wsaBuf.len = MAX_RECV_SIZE;
@@ -199,10 +199,8 @@ public:
 		DWORD dwRecvBytes = 0;
 
 		int tempR = WSARecv(userSkt, &(tempOvLap->wsaBuf), 1, &dwRecvBytes, &dwFlag, (LPWSAOVERLAPPED)tempOvLap, NULL);
-
-		if (tempR == SOCKET_ERROR && (WSAGetLastError() != ERROR_IO_PENDING))
-		{
-			std::cout << userSkt << " WSARecv() Fail : " << WSAGetLastError() << std::endl;
+		if (tempR == SOCKET_ERROR && (WSAGetLastError() != ERROR_IO_PENDING)) {
+			std::cout << userSkt << " WSARecv() Fail : " << WSAGetLastError() << '\n';
 			return false;
 		}
 
@@ -213,29 +211,26 @@ public:
 	// ======================= SEND =======================
 
 	void PushSendMsg(const uint32_t dataSize_, char* sendMsg) {
-
 		OverlappedEx* tempOvLap = overLappedManager->getOvLap();
 
-		if (tempOvLap == nullptr) { // Allocate new overlap if pool is empty
+		if (tempOvLap == nullptr) {
 			OverlappedEx* overlappedEx = new OverlappedEx;
 			ZeroMemory(overlappedEx, sizeof(OverlappedEx));
-			overlappedEx->wsaBuf.len = MAX_RECV_SIZE;
-			overlappedEx->wsaBuf.buf = new char[MAX_RECV_SIZE];
+			overlappedEx->wsaBuf.len = dataSize_;
+			overlappedEx->wsaBuf.buf = new char[dataSize_];
 			overlappedEx->connObjNum = connObjNum;
 			CopyMemory(overlappedEx->wsaBuf.buf, sendMsg, dataSize_);
 			overlappedEx->taskType = TaskType::NEWSEND;
-
-			sendQueue.push(overlappedEx); // Push Send Msg To User
+			sendQueue.push(overlappedEx);
 			sendQueueSize.fetch_add(1);
 		}
 		else {
-			tempOvLap->wsaBuf.len = MAX_RECV_SIZE;
-			tempOvLap->wsaBuf.buf = new char[MAX_RECV_SIZE];
+			tempOvLap->wsaBuf.len = dataSize_;
+			tempOvLap->wsaBuf.buf = new char[dataSize_];
 			tempOvLap->connObjNum = connObjNum;
 			CopyMemory(tempOvLap->wsaBuf.buf, sendMsg, dataSize_);
 			tempOvLap->taskType = TaskType::SEND;
-
-			sendQueue.push(tempOvLap); // Push Send Msg To User
+			sendQueue.push(tempOvLap);
 			sendQueueSize.fetch_add(1);
 		}
 
@@ -247,7 +242,7 @@ public:
 	void SendComplete() {
 		sendQueueSize.fetch_sub(1);
 
-		if (sendQueueSize.load() == 1) {
+		if (sendQueueSize.load() > 0) {
 			ProcSend();
 		}
 	}

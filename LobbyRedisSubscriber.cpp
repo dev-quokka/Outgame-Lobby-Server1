@@ -57,7 +57,8 @@ void LobbyRedisSubscriber::SubscribeLoop() {
 }
 
 void LobbyRedisSubscriber::HandleLobbyEvent(const std::string& channel, const std::string& message) {
-
+    std::cout << "[HandleLobbyEvent] channel: " << channel
+        << " message: " << message << '\n';  // 디버그 추가
     auto pos = message.find("\"type\":");
     if (pos == std::string::npos) {
         std::cerr << "[HandleLobbyEvent] Invalid message: " << message << '\n';
@@ -161,13 +162,14 @@ void LobbyRedisSubscriber::HandleFriendRequest(const std::string& message) {
 }
 
 void LobbyRedisSubscriber::HandleFriendAccepted(const std::string& message) {
-    // message 형식 : {"type":6,"data":{"targetPk":13,"senderPk":5}}
+    // message 형식 : {"type":6,"data":{"targetpk":13,"senderpk":5}}
 
     uint32_t targetPk = ParseUintField(message, "targetPk");
     uint32_t senderPk = ParseUintField(message, "senderPk");
+    std::string senderId = ParseStringField(message, "senderId");
     if (targetPk == 0 || senderPk == 0) return;
 
-    RedisManager::GetInstance().SendFriendAcceptToUser(targetPk, senderPk, 0);  // targetPk에게 senderPk의 친구 수락 메시지 전달
+    RedisManager::GetInstance().SendFriendAcceptToUser(targetPk, senderPk, senderId, 0);  // targetPk에게 senderPk의 친구 수락 메시지 전달
     std::cout << "[HandleFriendAccepted] targetPk: " << targetPk << " senderPk: " << senderPk << '\n';
 }
 
@@ -176,9 +178,10 @@ void LobbyRedisSubscriber::HandleFriendRemoved(const std::string& message) {
 
     uint32_t targetPk = ParseUintField(message, "targetPk");
     uint32_t senderPk = ParseUintField(message, "senderPk");
+    std::string senderId = ParseStringField(message, "senderId");
     if (targetPk == 0 || senderPk == 0) return;
 
-    RedisManager::GetInstance().SendFriendAcceptToUser(targetPk, senderPk, 1);  // targetPk에게 senderPk의 친구 수락 메시지 전달
+    RedisManager::GetInstance().SendFriendAcceptToUser(targetPk, senderPk, senderId, 1);  // targetPk에게 senderPk의 친구 수락 메시지 전달
     std::cout << "[HandleFriendRemoved] targetPk: " << targetPk << " senderPk: " << senderPk << '\n';
 }
 

@@ -49,14 +49,6 @@ bool OutGameLobbyServer::init() {
     overLappedManager = new OverLappedManager;
     overLappedManager->init();
 
-    RedisManager::GetInstance().RedisRun(maxThreadCount); // 레디스 연결
-    auto& redis = RedisManager::GetInstance().GetRedis();
-
-    bool m = MySQLManager::GetInstance().init();
-    if (!m) return false;
-
-    heartbeat_.Start(SERVER_ID); // 주기적으로 서버 유저수를 레디스에 올리기 위한 하트비트 쓰레드 실행
-    subscriber_.Start(SERVER_ID); // 레디스 펍섭 메시지 받기 위한 쓰레드 실행
     return true;
 }
 
@@ -79,6 +71,16 @@ bool OutGameLobbyServer::StartWork() {
         AcceptQueue.push(connUser);
         connUsersManager->InsertUser(i, connUser);
     }
+
+    RedisManager::GetInstance().RedisRun(maxThreadCount); // 레디스 연결
+    auto& redis = RedisManager::GetInstance().GetRedis();
+    RedisManager::GetInstance().SetManager(connUsersManager);
+
+    bool m = MySQLManager::GetInstance().init();
+    if (!m) return false;
+
+    heartbeat_.Start(SERVER_ID); // 주기적으로 서버 유저수를 레디스에 올리기 위한 하트비트 쓰레드 실행
+    subscriber_.Start(SERVER_ID); // 레디스 펍섭 메시지 받기 위한 쓰레드 실행
 
     return true;
 }
@@ -186,6 +188,8 @@ void OutGameLobbyServer::WorkThread() {
                 overLappedManager->returnOvLap(overlappedEx);
             }
 
+            RedisManager::GetInstance().UserDisConnect(connObjNum);
+
             connUser->Reset(); // Reset 
             AcceptQueue.push(connUser);
 
@@ -204,6 +208,7 @@ void OutGameLobbyServer::WorkThread() {
             }
         }
         else if (overlappedEx->taskType == TaskType::RECV) {
+            RedisManager::GetInstance().PushRedisPacket(connObjNum, dwIoSize, overlappedEx->wsaBuf.buf); // Proccess In Redismanager
             connUser->ConnUserRecv(); // Wsarecv Again
             overLappedManager->returnOvLap(overlappedEx);
         }
@@ -212,6 +217,7 @@ void OutGameLobbyServer::WorkThread() {
             connUser->SendComplete();
         }
         else if (overlappedEx->taskType == TaskType::NEWRECV) {
+            RedisManager::GetInstance().PushRedisPacket(connObjNum, dwIoSize, overlappedEx->wsaBuf.buf); // Proccess In Redismanager
             connUser->ConnUserRecv(); // Wsarecv Again
             delete[] overlappedEx->wsaBuf.buf;
             delete overlappedEx;
