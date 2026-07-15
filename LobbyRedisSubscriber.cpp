@@ -124,24 +124,24 @@ void LobbyRedisSubscriber::HandleLobbyEvent(const std::string& channel, const st
 
 
 void LobbyRedisSubscriber::HandleFriendOnline(const std::string& message) {
-    uint32_t userPk = ParseUintField(message, "userPk");
-    if (userPk == 0) return;
+    uint32_t senderPk = ParseUintField(message, "senderPk");
+    std::string senderId = ParseStringField(message, "senderId");
+    if (senderPk == 0 || senderId.empty()) return;
 
-    // targets 파싱
-    auto targets = ParseTargets(message);  // [userPk, targetPk]
+    auto targets = ParseTargets(message);
     for (auto targetPk : targets) {
-        RedisManager::GetInstance().SendFriendStatusToUser(targetPk, userPk, 1);  // targetPk에게 userPk의 온라인 메시지 전달
+        RedisManager::GetInstance().SendFriendStatusToUser(targetPk, senderPk, senderId, 1);  // 1=온라인
     }
 }
 
 void LobbyRedisSubscriber::HandleFriendOffline(const std::string& message) {
-    uint32_t userPk = ParseUintField(message, "userPk");
-    if (userPk == 0) return;
+    uint32_t senderPk = ParseUintField(message, "senderPk");
+    std::string senderId = ParseStringField(message, "senderId");
+    if (senderPk == 0 || senderId.empty()) return;
 
-    // targets 파싱
-    auto targets = ParseTargets(message);  // [userPk, targetPk]
+    auto targets = ParseTargets(message);
     for (auto targetPk : targets) {
-        RedisManager::GetInstance().SendFriendStatusToUser(targetPk, userPk, 0);  // targetPk에게 userPk의 오프라인 메시지 전달
+        RedisManager::GetInstance().SendFriendStatusToUser(targetPk, senderPk, senderId, 0);  // 0=오프라인
     }
 }
 
@@ -269,15 +269,13 @@ void LobbyRedisSubscriber::HandlePartyInvite(const std::string& message) {
 }
 
 void LobbyRedisSubscriber::HandlePartyKick(const std::string& message) {
-    // {"type":12,"data":{"partyId":7,"userPk":13,"targets":[13,14,15]}}
     uint32_t partyId = ParseUintField(message, "partyId");
-    uint32_t userPk = ParseUintField(message, "userPk");
-    if (partyId == 0 || userPk == 0) return;
+    std::string kickedUserId = ParseStringField(message, "kickedUserId");
+    if (partyId == 0 || kickedUserId.empty()) return;
 
     auto targets = ParseTargets(message);
     for (auto targetPk : targets) {
-        RedisManager::GetInstance().SendPartyKickToUser(
-            targetPk, partyId, userPk);
+        RedisManager::GetInstance().SendPartyKickToUser(targetPk, kickedUserId);
     }
 }
 

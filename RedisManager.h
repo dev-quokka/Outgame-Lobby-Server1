@@ -111,7 +111,7 @@ public:
     // *** 다른 서버에서 publish된 메시지를 받아 이 서버의 타겟 유저에게 패킷 전송 ****
 
     // 친구 온라인/오프라인 상태 변경 패킷 전송
-    void SendFriendStatusToUser(uint32_t targetPk_, uint32_t friendPk_, uint16_t status_);
+    void SendFriendStatusToUser(uint32_t targetPk_, uint32_t senderPk_, const std::string& senderId_, uint8_t onlineStatus_);
     // 친구 요청 수락/거절 결과 패킷 전송
     void SendFriendAcceptToUser(uint32_t targetPk_, uint32_t senderPk_, const std::string& senderId_, uint16_t accept_);
     // 친구 요청 알림 패킷 전송 (요청자 정보 포함)
@@ -129,7 +129,7 @@ public:
     // 파티 초대 거절 알림 패킷 전송 (초대한 유저에게)
     void SendPartyInviteRejectToUser(uint32_t targetPk_, const std::string& senderId_);
     // 파티원 강퇴 알림 패킷 전송 (강퇴된 유저 + 파티원들에게)
-    void SendPartyKickToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t kickedPk_);
+    void SendPartyKickToUser(uint32_t targetPk_, const std::string& kickedUserId_);
     // 파티장 위임 알림 패킷 전송 (파티원들에게)
     void SendPartyDelegateToUser(uint32_t targetPk_, uint32_t partyId_, uint32_t newLeaderPk_);
     // 파티원 온라인/오프라인 상태 알림 패킷 전송

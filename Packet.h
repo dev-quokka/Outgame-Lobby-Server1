@@ -97,8 +97,8 @@ struct FRIEND_ACCEPT_NOTIFY : PACKET_HEADER {
 
 // 친구 온/오프/게임중 상태 변경 알림 패킷
 struct FRIEND_STATUS_NOTIFY : PACKET_HEADER {
-	uint32_t friendPk = 0;  // 상태가 바뀐 친구 pk
-	uint8_t  onlineStatus = 0;  // 0=오프라인, 1=로비, 2=게임중
+	char    senderId[MAX_USER_ID_LEN] = {}; 
+	uint8_t onlineStatus = 0;
 };
 
 // 받은 친구 요청에 대한 응답 패킷 (수락했는지 거절했는지)
@@ -221,13 +221,13 @@ struct PARTY_INFO_PACKET : PACKET_HEADER {
 // 새 멤버 입장 알림 (기존 파티원들에게)
 struct PARTY_JOIN_NOTIFY : PACKET_HEADER {
 	char     userId[MAX_USER_ID_LEN] = {};
+	uint32_t partyId = 0; 
 	uint32_t userPk = 0;
+	uint16_t userLevel = 0; 
 	uint32_t head = 0;
 	uint32_t body = 0;
 	uint32_t legs = 0;
 	uint32_t feet = 0;
-	uint16_t userLevel = 0;
-	uint8_t  memberCount = 0;  // 갱신된 파티원 수
 };
 
 
@@ -260,9 +260,8 @@ struct PARTY_KICK_RESPONSE : PACKET_HEADER {
 	uint8_t failCode = 0;
 };
 
-// 강퇴된 유저를 파티원들에게 알림
 struct PARTY_KICK_NOTIFY : PACKET_HEADER {
-	uint32_t userPk = 0;  // 강퇴된 유저 pk
+	char kickedUserId[MAX_USER_ID_LEN] = {};
 };
 
 
