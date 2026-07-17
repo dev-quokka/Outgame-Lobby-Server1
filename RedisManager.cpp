@@ -1171,7 +1171,7 @@ void RedisManager::UserConnect(uint16_t connObjNum_, uint16_t packetSize_, char*
         {"exp",     std::to_string(tempSessionInfo->userExp)}
     };
     redis->hset(userKey, fields.begin(), fields.end());
-    redis->expire(userKey, std::chrono::seconds(300));
+    redis->persist(userKey); // ttl Á¦°Å
 
     userConnRes.isSuccess = true;
     tempUser->PushSendMsg(sizeof(userConnRes), (char*)&userConnRes);
