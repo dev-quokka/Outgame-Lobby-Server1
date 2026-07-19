@@ -31,9 +31,10 @@ void LobbyHeartbeat::HeartbeatLoop() {
         try {
             int count = userCount.load();
             
+            // SET + TTL EXPIRE 한번에 처리
             redis.set(key,
                 std::to_string(count),
-                std::chrono::seconds(TtlSec));
+                std::chrono::seconds(TtlSec)); // ttl 세팅
         }
         catch (const std::exception& e) { // Redis 일시 장애 시 로그만 남기고 다음 주기에 재시도
             std::cerr << "[Heartbeat] Redis set failed (server " << serverId << "): " << e.what() << '\n';

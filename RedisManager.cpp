@@ -353,15 +353,12 @@ void RedisManager::ProcessCostumeChange(uint16_t connObjNum_, uint16_t packetSiz
 
 void RedisManager::ProcessPartyFollow(uint16_t connObjNum_, uint16_t packetSize_, char* pPacket_) {
     auto reqPacket = reinterpret_cast<PARTY_FOLLOW_REQUEST*>(pPacket_);
-
     PARTY_FOLLOW_RESPONSE partyFollowRes;
     partyFollowRes.PacketId = (uint16_t)PACKET_ID::PARTY_FOLLOW_RESPONSE;
     partyFollowRes.PacketLength = sizeof(PARTY_FOLLOW_RESPONSE);
-
     auto tempUser = connUsersManager->FindUser(connObjNum_);
     uint32_t myPk = tempUser->GetPk();
 
-    // 이미 파티에 있으면 불가
     if (tempUser->GetPartId() != 0) {
         partyFollowRes.isSuccess = false;
         partyFollowRes.failCode = (uint8_t)PartyFailCode::AlreadyInParty;
@@ -370,9 +367,6 @@ void RedisManager::ProcessPartyFollow(uint16_t connObjNum_, uint16_t packetSize_
     }
 
     try {
-        // B의 pk 조회 (Redis에서 userId에서 pk 매핑 없으니 DB 조회)
-        // 근데 친구라면 이미 friendPks에 있을 수 있음
-        // 일단 DB로 조회
         auto targetInfo = MySQLManager::GetInstance().SearchUser(std::string(reqPacket->targetId));
         if (!targetInfo.has_value()) {
             partyFollowRes.isSuccess = false;
@@ -382,30 +376,26 @@ void RedisManager::ProcessPartyFollow(uint16_t connObjNum_, uint16_t packetSize_
         }
         uint32_t targetPk = targetInfo->userPk;
 
-        // B의 partyId 확인
         std::string targetUserKey = "user:" + std::to_string(targetPk);
         auto targetPartyIdStr = redis->hget(targetUserKey, "partyId");
-
         uint32_t partyId = 0;
 
         if (!targetPartyIdStr.has_value() || *targetPartyIdStr == "0") {
             // B 파티 없으면 새 파티 생성 (B가 파티장)
             partyId = static_cast<uint32_t>(redis->incr("party:counter"));
-
             std::string membersKey = "party:" + std::to_string(partyId) + ":members";
             std::string leaderKey = "party:" + std::to_string(partyId) + ":leader";
 
-            // B를 파티장 + 첫 멤버로
-            redis->sadd(membersKey, std::to_string(targetPk));
-            redis->set(leaderKey, std::to_string(targetPk));
-            redis->hset(targetUserKey, "partyId", std::to_string(partyId));
+            auto pipe = redis->pipeline();
+            pipe.sadd(membersKey, std::to_string(targetPk))
+                .set(leaderKey, std::to_string(targetPk))
+                .hset(targetUserKey, "partyId", std::to_string(partyId));
+            pipe.exec();
 
-            // B 세션 partyId 갱신 (B가 이 서버에 있으면)
             auto targetUser = connUsersManager->FindUser(connUsersManager->GetObjNumByPk(targetPk));
             if (targetUser) targetUser->SetPartyId(partyId);
         }
         else {
-            // B 파티 있으면 기존 파티에 입장
             partyId = std::stoul(*targetPartyIdStr);
         }
 
@@ -419,17 +409,15 @@ void RedisManager::ProcessPartyFollow(uint16_t connObjNum_, uint16_t packetSize_
             return;
         }
 
-        std::string userKey = "user:" + std::to_string(myPk);
-
         // A를 파티에 추가
-        redis->sadd(membersKey, std::to_string(myPk));
-        redis->hset(userKey, "partyId", std::to_string(partyId));
+        std::string userKey = "user:" + std::to_string(myPk);
+        auto pipe2 = redis->pipeline();
+        pipe2.sadd(membersKey, std::to_string(myPk))
+            .hset(userKey, "partyId", std::to_string(partyId));
+        pipe2.exec();
+
         tempUser->SetPartyId(partyId);
-
-        // A에게 파티 전체 정보 전달
         SendPartyInfo(connObjNum_, partyId);
-
-        // 기존 파티원들에게 A 입장 알림
         NotifyPartyJoin(myPk, partyId);
 
         partyFollowRes.isSuccess = true;
