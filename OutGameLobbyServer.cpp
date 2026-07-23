@@ -62,6 +62,7 @@ bool OutGameLobbyServer::StartWork() {
     }
 
     connUsersManager = new ConnUsersManager(maxClientCount);
+    heartbeat = new LobbyHeartbeat;
 
     for (int i = 0; i < maxClientCount; i++) { // Create a user object
         if (i == 11) continue;
@@ -74,13 +75,13 @@ bool OutGameLobbyServer::StartWork() {
 
     RedisManager::GetInstance().RedisRun(maxThreadCount); // 레디스 연결
     auto& redis = RedisManager::GetInstance().GetRedis();
-    RedisManager::GetInstance().SetManager(connUsersManager);
+    RedisManager::GetInstance().SetManager(connUsersManager, heartbeat);
+
+    heartbeat->Start(SERVER_ID); // 주기적으로 서버 유저수를 레디스에 올리기 위한 하트비트 쓰레드 실행
+    subscriber_.Start(SERVER_ID); // 레디스 펍섭 메시지 받기 위한 쓰레드 실행
 
     bool m = MySQLManager::GetInstance().init();
     if (!m) return false;
-
-    heartbeat_.Start(SERVER_ID); // 주기적으로 서버 유저수를 레디스에 올리기 위한 하트비트 쓰레드 실행
-    subscriber_.Start(SERVER_ID); // 레디스 펍섭 메시지 받기 위한 쓰레드 실행
 
     return true;
 }

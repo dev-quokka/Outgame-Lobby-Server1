@@ -37,7 +37,6 @@ private:
     std::vector<std::thread> workThreads;
     std::vector<std::thread> acceptThreads;
 
-    LobbyHeartbeat  heartbeat_;
     LobbyRedisSubscriber subscriber_; 
 
     // 8 bytes
@@ -46,6 +45,7 @@ private:
 
     OverLappedManager* overLappedManager;
     ConnUsersManager* connUsersManager;
+    LobbyHeartbeat*  heartbeat;
 
     // 2 bytes
     uint16_t MaxThreadCnt = 0;

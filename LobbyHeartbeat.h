@@ -6,8 +6,8 @@
 
 #include "RedisManager.h"
 
-constexpr int IntervalSec = 5;
-constexpr int TtlSec = 15;
+constexpr int IntervalSec = 3;
+constexpr int TtlSec = 10;
 
 class LobbyHeartbeat {
 public:

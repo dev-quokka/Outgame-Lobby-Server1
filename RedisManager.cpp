@@ -1,4 +1,5 @@
 #include "RedisManager.h"
+#include "LobbyHeartbeat.h"
 
 RedisManager& RedisManager::GetInstance() {
     static RedisManager instance;  // 싱글톤 초기화
@@ -12,8 +13,9 @@ sw::redis::Redis& RedisManager::GetRedis() {
     return *redis;
 }
 
-void RedisManager::SetManager(ConnUsersManager* connUsersManager_) {
+void RedisManager::SetManager(ConnUsersManager* connUsersManager_, LobbyHeartbeat* heartbeat_) {
     connUsersManager = connUsersManager_;
+    lobbyHeartbeat = heartbeat_;
 }
 
 
@@ -1168,6 +1170,7 @@ void RedisManager::UserConnect(uint16_t connObjNum_, uint16_t packetSize_, char*
     userConnRes.isSuccess = true;
     tempUser->PushSendMsg(sizeof(userConnRes), (char*)&userConnRes);
 
+    lobbyHeartbeat->OnUserConnected();
     std::cout << "[ProcessLobbyConnect] userId: " << reqPacket->userId << " userPk: " << userPk << '\n';
 }
 
@@ -1198,6 +1201,9 @@ void RedisManager::UserDisConnect(uint16_t connObjNum_) {
 
         // 4. pk, objNum 매핑 제거
         connUsersManager->DelPkToObjNum(userPk);
+
+        // 5. 서버 유저 카운트 감소시키기
+        lobbyHeartbeat->OnUserDisconnected();
         std::cout << "[UserDisConnect] userPk: " << userPk << '\n';
     }
     catch (const std::exception& e) {
@@ -1480,6 +1486,7 @@ void RedisManager::PublishToUsers(const std::vector<uint32_t>& targetPks_, const
     if (targetPks_.empty()) return;
 
     try {
+
         // pipeline으로 서버 위치 조회
         auto pipe = redis->pipeline();
         for (auto pk : targetPks_) {
@@ -1493,16 +1500,11 @@ void RedisManager::PublishToUsers(const std::vector<uint32_t>& targetPks_, const
             try {
                 auto server = replies.get<sw::redis::OptionalString>(i);
                 if (server.has_value()) {
-                    std::cout << "[PublishToUsers] pk:" << targetPks_[i]
-                        << " server:" << *server << '\n';  // 디버그
                     serverTargets[*server].push_back(targetPks_[i]);
                 }
-                else {
-                    std::cout << "[PublishToUsers] pk:" << targetPks_[i]
-                        << " server: 없음 (오프라인)\n";  // 디버그
-                }
             }
-            catch (...) { continue; } // 예외 발생한 pk 하나만 건너뛰고 나머지는 계속 처리
+            // 예외 발생한 pk 하나만 건너뛰고 나머지는 계속 처리
+            catch (...) { continue; }
         }
 
         // 기존 메시지의 data 안에 targets 삽입
@@ -1512,8 +1514,6 @@ void RedisManager::PublishToUsers(const std::vector<uint32_t>& targetPks_, const
         // 서버별로 타겟 pk를 묶어서 한 번에 publish
         // 같은 서버에 친구가 N명 있어도 publish는 1번 -> Redis 왕복 최소화
         for (const auto& [server, pks] : serverTargets) {
-            std::cout << "[PublishToUsers] publish → " << server
-                << ":events (" << pks.size() << "명)\n";  // 디버그
             std::string targets = "[";
             for (int i = 0; i < (int)pks.size(); i++) {
                 if (i > 0) targets += ",";

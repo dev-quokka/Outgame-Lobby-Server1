@@ -19,6 +19,8 @@
 #include "MySQLManager.h"
 #include "ServerChannelEnum.h"
 
+class LobbyHeartbeat;
+
 class RedisManager {
 public:
     static RedisManager& GetInstance();
@@ -29,7 +31,7 @@ public:
 
     // ===================== REDIS MANAGEMENT =====================
     void RedisRun(const uint16_t RedisThreadCnt_);
-    void SetManager(ConnUsersManager* connUsersManager_);
+    void SetManager(ConnUsersManager* connUsersManager_, LobbyHeartbeat* heartbeat_);
     bool CreateRedisThread(const uint16_t RedisThreadCnt_);
     void RedisThread();
 
@@ -183,6 +185,8 @@ private:
 
     // 8 bytes
     std::unique_ptr<sw::redis::Redis> redis;
+
+    LobbyHeartbeat* lobbyHeartbeat;
     ConnUsersManager* connUsersManager;
 
     // 1 bytes
