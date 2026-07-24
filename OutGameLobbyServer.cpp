@@ -106,7 +106,7 @@ void OutGameLobbyServer::ServerEnd() {
         }
     }
 
-    heartbeat_.Stop();
+    heartbeat->Stop();
     subscriber_.Stop();
 
     CloseHandle(sIOCPHandle);

@@ -36,7 +36,7 @@ void LobbyHeartbeat::HeartbeatLoop() {
                 std::to_string(count),
                 std::chrono::seconds(TtlSec)); // ttl 세팅
 
-            std::cout << "Lobby Server " << SERVER_ID << " User Count: " << count << '\n';
+            std::cout << "[Heartbeat] Lobby Server " << SERVER_ID << " User Count: " << count << '\n';
         }
         catch (const std::exception& e) { // Redis 일시 장애 시 로그만 남기고 다음 주기에 재시도
             std::cerr << "[Heartbeat] Redis set failed (server " << serverId << "): " << e.what() << '\n';

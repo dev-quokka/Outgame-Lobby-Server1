@@ -1158,7 +1158,8 @@ void RedisManager::UserConnect(uint16_t connObjNum_, uint16_t packetSize_, char*
         {"server",  GetServerName(SERVER_TYPE)},
         {"partyId", std::to_string(currentPartyId)},
         {"level",   std::to_string(tempSessionInfo->userLevel)},
-        {"exp",     std::to_string(tempSessionInfo->userExp)}
+        {"exp",     std::to_string(tempSessionInfo->userExp)},
+        {"userId",  tempId}
     };
 
     auto pipe = redis->pipeline();
@@ -1172,6 +1173,9 @@ void RedisManager::UserConnect(uint16_t connObjNum_, uint16_t packetSize_, char*
 
     lobbyHeartbeat->OnUserConnected();
     std::cout << "[ProcessLobbyConnect] userId: " << reqPacket->userId << " userPk: " << userPk << '\n';
+
+
+    std::cout << "[UserConnect] key: " << userKey << '\n';
 }
 
 void RedisManager::UserDisConnect(uint16_t connObjNum_) {
@@ -1320,29 +1324,35 @@ void RedisManager::SendPartyInfo(uint16_t connObjNum_, uint32_t partyId_) {
         auto pipe = redis->pipeline();
         for (auto pk : memberPks) {
             pipe.hget("user:" + std::to_string(pk), "level");
+            pipe.hget("user:" + std::to_string(pk), "userId");
             pipe.hgetall("user:" + std::to_string(pk) + ":equip");
         }
         auto replies = pipe.exec();
 
-        // 파티원 정보 조립
         for (int i = 0; i < (int)memberPks.size(); i++) {
             auto& member = partyInfo.members[i];
             member.userPk = memberPks[i];
 
-            // level
             try {
-                auto level = replies.get<sw::redis::OptionalString>(i * 2);
+                auto level = replies.get<sw::redis::OptionalString>(i * 3);
                 if (level.has_value()) {
-                    member.userLevel = static_cast<uint16_t>(
-                        std::stoul(*level));
+                    member.userLevel = static_cast<uint16_t>(std::stoul(*level));
                 }
             }
             catch (...) {}
 
-            // equip (hgetall로 불러오기)
+            try {
+                auto id = replies.get<sw::redis::OptionalString>(i * 3 + 1);
+                if (id.has_value()) {
+                    strncpy_s(member.userId, sizeof(member.userId),
+                        id->c_str(), _TRUNCATE);
+                }
+            }
+            catch (...) {}
+
             try {
                 std::unordered_map<std::string, std::string> equip;
-                replies.get(i * 2 + 1, std::inserter(equip, equip.begin()));
+                replies.get(i * 3 + 2, std::inserter(equip, equip.begin()));
                 if (equip.count("head")) member.head = std::stoul(equip["head"]);
                 if (equip.count("body")) member.body = std::stoul(equip["body"]);
                 if (equip.count("legs")) member.legs = std::stoul(equip["legs"]);
@@ -1351,11 +1361,11 @@ void RedisManager::SendPartyInfo(uint16_t connObjNum_, uint32_t partyId_) {
             catch (...) {}
 
             ConnUser* user = connUsersManager->FindUserByPk(memberPks[i]);
-            if (user) {
-                strncpy_s(member.userId, sizeof(member.userId), user->GetId().c_str(), _TRUNCATE);
+            if (user && !user->GetId().empty()) {
+                strncpy_s(member.userId, sizeof(member.userId),
+                    user->GetId().c_str(), _TRUNCATE);
             }
         }
-
         connUsersManager->FindUser(connObjNum_)->PushSendMsg(sizeof(partyInfo), (char*)&partyInfo);
     }
     catch (const std::exception& e) {
